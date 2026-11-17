@@ -1,3 +1,4 @@
+<<<<<<< HEAD:manifest.json
 **`manifest.json`:**
 ```json
 {
@@ -15,3 +16,21 @@
     }
   ]
 }
+=======
+{
+  "name": "Enfoque Diario",
+  "short_name": "Enfoque",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0e0e11",
+  "theme_color": "#0e0e11",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://w3.org' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%232563eb'/><text x='50' y='68' font-size='55' text-anchor='middle' fill='white'>✓</text></svg>",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    }
+  ]
+}
+>>>>>>> 072f10974782e651387a3a9a147dae9ad9e3c077:enfoque diario/manifest.json
