@@ -1,9 +1,8 @@
-**`manifest.json`:**
-```json
 {
   "name": "Enfoque Diario",
   "short_name": "Enfoque",
   "start_url": "./index.html",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#0e0e11",
   "theme_color": "#0e0e11",
