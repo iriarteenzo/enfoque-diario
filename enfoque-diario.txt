@@ -1,0 +1,9 @@
+enfoque-diario/
+├── index.html          # Estructura semántica, modales <dialog> y vistas
+├── styles.css          # Sistema de diseño accesible (Dark/Light + áreas táctiles 44px)
+├── manifest.json       # Configuración PWA instalable en móviles
+├── sw.js               # Service Worker para funcionamiento 100% Offline
+└── js/
+    ├── storage.js      # Capa IndexedDB + Validación JSON + Sanitización XSS
+    ├── cloud-sync.js   # Conector opcional a Backend gratuito (Supabase)
+    └── app.js          # Controlador principal, estado reactivo y eventos UI
