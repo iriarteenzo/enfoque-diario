@@ -1,4 +1,3 @@
-```javascript
 const DB_NAME = 'EnfoqueDiarioDB';
 const DB_VERSION = 1;
 const STORE_NAME = 'appState';
@@ -31,13 +30,15 @@ class StorageService {
       const req = indexedDB.open(DB_NAME, DB_VERSION);
       req.onupgradeneeded = (e) => {
         const db = e.target.result;
-        if (!db.objectStoreNames.contains(STORE_NAME)) db.createObjectStore(STORE_NAME);
+        if (!db.objectStoreNames.contains(STORE_NAME)) {
+          db.createObjectStore(STORE_NAME);
+        }
       };
       req.onsuccess = (e) => {
         this.db = e.target.result;
         resolve(this.db);
       };
-      req.onerror = () => reject(new Error('Error abriendo IndexedDB'));
+      req.onerror = () => reject(new Error('No se pudo abrir IndexedDB'));
     });
   }
 
@@ -50,11 +51,12 @@ class StorageService {
     if (!input || typeof input !== 'object' || Array.isArray(input)) {
       throw new Error('Estructura JSON inválida.');
     }
+
     const clean = structuredClone(DEFAULT_STATE);
     clean.updatedAt = Number.isFinite(input.updatedAt) ? input.updatedAt : Date.now();
 
     if (input.user && typeof input.user === 'object') {
-      clean.user.name = this.sanitizeText(input.user.name || 'Usuario', 40);
+      clean.user.name = this.sanitizeText(input.user.name || 'Usuario', 40) || 'Usuario';
       clean.user.hearts = Number.isFinite(input.user.hearts) ? Math.max(0, input.user.hearts) : 2;
       clean.user.theme = input.user.theme === 'light' ? 'light' : 'dark';
     }
@@ -68,11 +70,13 @@ class StorageService {
       }));
     }
 
+    const defaultCatId = clean.categories[0].id;
+
     if (Array.isArray(input.tasks)) {
       clean.tasks = input.tasks.slice(0, 500).map((t, i) => ({
         id: this.sanitizeText(t.id || `t_${Date.now()}_${i}`, 40),
         title: this.sanitizeText(t.title || 'Tarea sin título', 120),
-        categoryId: this.sanitizeText(t.categoryId || clean.categories.id, 32),
+        categoryId: this.sanitizeText(t.categoryId || defaultCatId, 32),
         startTime: /^\d{2}:\d{2}$/.test(t.startTime) ? t.startTime : '09:00',
         endTime: /^\d{2}:\d{2}$/.test(t.endTime) ? t.endTime : '10:00',
         completed: Boolean(t.completed),
@@ -104,7 +108,9 @@ class StorageService {
     return new Promise((resolve) => {
       const tx = this.db.transaction(STORE_NAME, 'readonly');
       const req = tx.objectStore(STORE_NAME).get(STATE_KEY);
-      req.onsuccess = () => resolve(req.result ? this.sanitizeAndValidate(req.result) : structuredClone(DEFAULT_STATE));
+      req.onsuccess = () => {
+        resolve(req.result ? this.sanitizeAndValidate(req.result) : structuredClone(DEFAULT_STATE));
+      };
       req.onerror = () => resolve(structuredClone(DEFAULT_STATE));
     });
   }
@@ -121,8 +127,15 @@ class StorageService {
   }
 
   async importJSON(file) {
-    if (!file || file.size > 2 * 1024 * 1024) throw new Error('Archivo inválido o mayor a 2MB.');
-    const parsed = JSON.parse(await file.text());
+    if (!file || file.size > 2 * 1024 * 1024) {
+      throw new Error('El archivo debe ser un JSON válido menor a 2 MB.');
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(await file.text());
+    } catch {
+      throw new Error('El archivo JSON está dañado y no se puede leer.');
+    }
     return this.saveState(parsed);
   }
 }
