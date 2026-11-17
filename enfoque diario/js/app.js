@@ -5,14 +5,20 @@ let appState = null;
 let draftSteps = [];
 let undoSnapshot = null;
 let toastTimer = null;
+let activeStoryTaskId = null;
 
-// Inicialización
 async function initApp() {
   appState = await storage.getState();
   applyTheme(appState.user.theme);
+  updateHeaderDate();
   renderAll();
   bindEvents();
   registerServiceWorker();
+}
+
+function updateHeaderDate() {
+  const formatter = new Intl.DateTimeFormat('es-ES', { weekday: 'short', day: 'numeric', month: 'short' });
+  document.getElementById('currentDateLabel').textContent = formatter.format(new Date()).toUpperCase();
 }
 
 function applyTheme(theme) {
@@ -49,7 +55,6 @@ function showToast(message, canUndo = false) {
   toastTimer = setTimeout(() => toast.classList.add('hidden'), 5000);
 }
 
-// Renderizado seguro (100% DOM APIs / textContent, inmune a XSS)
 function renderAll() {
   document.getElementById('heartsCount').textContent = appState.user.hearts;
   document.getElementById('userNameInput').value = appState.user.name;
@@ -65,17 +70,53 @@ function renderStories() {
   const bar = document.getElementById('storiesBar');
   bar.replaceChildren();
 
-  appState.categories.forEach(cat => {
+  appState.categories.forEach((cat) => {
+    const pendingTask = appState.tasks.find((t) => t.categoryId === cat.id && !t.completed);
+
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'story';
-    btn.innerHTML = `<div class="story-ring"><div class="story-inner">${cat.icon}</div></div>`;
+    btn.setAttribute('aria-label', `Ver resumen de ${cat.name}`);
+
+    const ring = document.createElement('div');
+    ring.className = `story-ring ${pendingTask ? '' : 'done'}`;
+
+    const inner = document.createElement('div');
+    inner.className = 'story-inner';
+    inner.textContent = cat.icon;
+    ring.appendChild(inner);
+
     const label = document.createElement('span');
     label.className = 'story-label';
     label.textContent = cat.name;
-    btn.appendChild(label);
+
+    btn.append(ring, label);
+    btn.onclick = () => openStoryForCategory(cat, pendingTask);
     bar.appendChild(btn);
   });
+}
+
+function openStoryForCategory(cat, task) {
+  const storyDialog = document.getElementById('storyDialog');
+  const shell = document.getElementById('storyShell');
+  shell.style.backgroundColor = cat.color;
+
+  document.getElementById('storyModalCat').textContent = `${cat.icon} ${cat.name}`;
+  const completeBtn = document.getElementById('storyCompleteBtn');
+
+  if (task) {
+    activeStoryTaskId = task.id;
+    document.getElementById('storyModalTitle').textContent = task.title;
+    document.getElementById('storyModalMeta').textContent = `⏰ ${task.startTime} – ${task.endTime}`;
+    completeBtn.classList.remove('hidden');
+  } else {
+    activeStoryTaskId = null;
+    document.getElementById('storyModalTitle').textContent = '¡Todo al día en esta categoría!';
+    document.getElementById('storyModalMeta').textContent = 'No tienes tareas pendientes aquí.';
+    completeBtn.classList.add('hidden');
+  }
+
+  storyDialog.showModal();
 }
 
 function renderFeed() {
@@ -90,15 +131,15 @@ function renderFeed() {
     return;
   }
 
-  // Ordenar: "Sapos" (tareas críticas) primero, completadas al final
-  const sorted = [...appState.tasks].sort((a, b) => Number(a.completed) - Number(b.completed) || Number(b.isFrog) - Number(a.isFrog));
+  const sorted = [...appState.tasks].sort(
+    (a, b) => Number(a.completed) - Number(b.completed) || Number(b.isFrog) - Number(a.isFrog)
+  );
 
-  sorted.forEach(task => {
-    const cat = appState.categories.find(c => c.id === task.categoryId) || appState.categories;
+  sorted.forEach((task) => {
+    const cat = appState.categories.find((c) => c.id === task.categoryId) || appState.categories[0];
     const card = document.createElement('article');
     card.className = `task ${task.completed ? 'completed' : ''}`;
 
-    // Header
     const header = document.createElement('div');
     header.className = 'ig-header';
     const catInfo = document.createElement('div');
@@ -107,7 +148,6 @@ function renderFeed() {
     header.appendChild(catInfo);
     card.appendChild(header);
 
-    // Body con color de categoría
     const body = document.createElement('div');
     body.className = 'ig-body';
     body.style.backgroundColor = cat.color;
@@ -131,14 +171,13 @@ function renderFeed() {
     body.append(info, checkBtn);
     card.appendChild(body);
 
-    // Subtareas si existen
     if (task.steps.length > 0) {
       const wrap = document.createElement('div');
       wrap.className = 'task-details-wrap';
       const stepsDiv = document.createElement('div');
       stepsDiv.className = 'steps';
 
-      task.steps.forEach(step => {
+      task.steps.forEach((step) => {
         const sBtn = document.createElement('button');
         sBtn.type = 'button';
         sBtn.className = `step ${step.done ? 'done' : ''}`;
@@ -150,16 +189,24 @@ function renderFeed() {
       card.appendChild(wrap);
     }
 
-    // Acciones inferiores
     const actions = document.createElement('div');
     actions.className = 'ig-actions';
+
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'icon-action-btn';
+    editBtn.setAttribute('aria-label', 'Editar tarea');
+    editBtn.textContent = '✏️';
+    editBtn.onclick = () => openTaskModal(task);
+
     const delBtn = document.createElement('button');
     delBtn.type = 'button';
     delBtn.className = 'icon-action-btn danger';
     delBtn.setAttribute('aria-label', 'Eliminar tarea');
     delBtn.textContent = '🗑';
     delBtn.onclick = () => deleteTask(task.id);
-    actions.appendChild(delBtn);
+
+    actions.append(editBtn, delBtn);
     card.appendChild(actions);
 
     feed.appendChild(card);
@@ -171,7 +218,7 @@ function renderRoutines() {
   body.replaceChildren();
   const dayNames = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 
-  appState.routines.forEach(r => {
+  appState.routines.forEach((r) => {
     const row = document.createElement('div');
     row.className = 'routine-row';
     row.setAttribute('role', 'row');
@@ -179,7 +226,24 @@ function renderRoutines() {
     const nameCell = document.createElement('div');
     nameCell.className = 'routine-cell name';
     nameCell.setAttribute('role', 'rowheader');
-    nameCell.textContent = r.title;
+
+    const titleSpan = document.createElement('span');
+    titleSpan.textContent = r.title;
+
+    const delRoutineBtn = document.createElement('button');
+    delRoutineBtn.type = 'button';
+    delRoutineBtn.className = 'routine-del';
+    delRoutineBtn.setAttribute('aria-label', `Eliminar hábito ${r.title}`);
+    delRoutineBtn.textContent = '✕';
+    delRoutineBtn.onclick = async () => {
+      undoSnapshot = structuredClone(appState);
+      const updated = structuredClone(appState);
+      updated.routines = updated.routines.filter((item) => item.id !== r.id);
+      await commitState(updated);
+      showToast('Hábito eliminado', true);
+    };
+
+    nameCell.append(titleSpan, delRoutineBtn);
     row.appendChild(nameCell);
 
     r.days.forEach((done, idx) => {
@@ -195,7 +259,7 @@ function renderRoutines() {
       btn.textContent = done ? '✓' : '';
       btn.onclick = async () => {
         const updated = structuredClone(appState);
-        const target = updated.routines.find(item => item.id === r.id);
+        const target = updated.routines.find((item) => item.id === r.id);
         target.days[idx] = !target.days[idx];
         await commitState(updated);
       };
@@ -211,7 +275,7 @@ function renderRoutines() {
 function renderCategorySelect() {
   const sel = document.getElementById('taskCategory');
   sel.replaceChildren();
-  appState.categories.forEach(c => {
+  appState.categories.forEach((c) => {
     const opt = document.createElement('option');
     opt.value = c.id;
     opt.textContent = `${c.icon} ${c.name}`;
@@ -219,20 +283,73 @@ function renderCategorySelect() {
   });
 }
 
-// Acciones de Negocio
+function renderDraftSteps() {
+  const list = document.getElementById('subtasksDraftList');
+  list.replaceChildren();
+  draftSteps.forEach((step, idx) => {
+    const item = document.createElement('div');
+    item.className = 'step';
+
+    const span = document.createElement('span');
+    span.textContent = `• ${step.text}`;
+
+    const rmBtn = document.createElement('button');
+    rmBtn.type = 'button';
+    rmBtn.textContent = '✕';
+    rmBtn.setAttribute('aria-label', 'Quitar paso');
+    rmBtn.onclick = () => {
+      draftSteps.splice(idx, 1);
+      renderDraftSteps();
+    };
+    item.append(span, rmBtn);
+    list.appendChild(item);
+  });
+}
+
+function openTaskModal(taskToEdit = null) {
+  const dialog = document.getElementById('taskDialog');
+  const form = document.getElementById('taskForm');
+  const details = document.getElementById('taskAdvancedDetails');
+  form.reset();
+
+  if (taskToEdit) {
+    document.getElementById('taskDialogTitle').textContent = 'Editar tarea';
+    document.getElementById('editingTaskId').value = taskToEdit.id;
+    document.getElementById('taskTitle').value = taskToEdit.title;
+    document.getElementById('taskCategory').value = taskToEdit.categoryId;
+    document.getElementById('taskStart').value = taskToEdit.startTime;
+    document.getElementById('taskEnd').value = taskToEdit.endTime;
+    document.getElementById('taskIsFrog').checked = taskToEdit.isFrog;
+    document.getElementById('taskRepeat').value = taskToEdit.repeat;
+    draftSteps = structuredClone(taskToEdit.steps);
+    details.open = draftSteps.length > 0 || taskToEdit.repeat !== 'none';
+  } else {
+    document.getElementById('taskDialogTitle').textContent = 'Nueva tarea';
+    document.getElementById('editingTaskId').value = '';
+    draftSteps = [];
+    details.open = false;
+  }
+
+  renderDraftSteps();
+  dialog.showModal();
+}
+
 async function toggleTask(id) {
   const updated = structuredClone(appState);
-  const t = updated.tasks.find(item => item.id === id);
+  const t = updated.tasks.find((item) => item.id === id);
   if (!t) return;
   t.completed = !t.completed;
-  if (t.completed && t.isFrog) updated.user.hearts += 1;
+  if (t.completed && t.isFrog) {
+    updated.user.hearts += 1;
+    showToast('🐸 ¡Sapo completado! +1 ❤️');
+  }
   await commitState(updated);
 }
 
 async function toggleStep(taskId, stepId) {
   const updated = structuredClone(appState);
-  const t = updated.tasks.find(item => item.id === taskId);
-  const s = t?.steps.find(item => item.id === stepId);
+  const t = updated.tasks.find((item) => item.id === taskId);
+  const s = t?.steps.find((item) => item.id === stepId);
   if (s) s.done = !s.done;
   await commitState(updated);
 }
@@ -240,126 +357,143 @@ async function toggleStep(taskId, stepId) {
 async function deleteTask(id) {
   undoSnapshot = structuredClone(appState);
   const updated = structuredClone(appState);
-  updated.tasks = updated.tasks.filter(t => t.id !== id);
+  updated.tasks = updated.tasks.filter((t) => t.id !== id);
   await commitState(updated);
   showToast('Tarea eliminada', true);
 }
 
-// Eventos DOM
 function bindEvents() {
-  const dialog = document.getElementById('taskDialog');
+  const taskDialog = document.getElementById('taskDialog');
+  const storyDialog = document.getElementById('storyDialog');
   const form = document.getElementById('taskForm');
 
-  // Navegación entre vistas
-  document.querySelectorAll('.nav button[data-view]').forEach(btn => {
+  document.querySelectorAll('.nav button[data-view]').forEach((btn) => {
     btn.onclick = () => {
-      document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.nav button').forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
-      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+      document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
       document.getElementById(`view-${btn.dataset.view}`).classList.add('active');
     };
   });
 
-  // Cambio de tema
   document.getElementById('themeToggleBtn').onclick = async () => {
     const nextTheme = appState.user.theme === 'dark' ? 'light' : 'dark';
     applyTheme(nextTheme);
     await commitState({ ...appState, user: { ...appState.user, theme: nextTheme } });
   };
-
-  // Abrir/Cerrar <dialog>
-  const openModal = () => {
-    form.reset();
-    draftSteps = [];
-    document.getElementById('subtasksDraftList').replaceChildren();
-    dialog.showModal();
+  document.getElementById('heartsBadge').onclick = () => {
+    showToast('Completa tareas críticas (🐸) para ganar corazones ❤️');
   };
-  document.getElementById('openNewTaskBtn').onclick = openModal;
-  document.getElementById('quickAddNavBtn').onclick = openModal;
-  document.getElementById('closeTaskDialog').onclick = () => dialog.close();
-  document.getElementById('cancelTaskBtn').onclick = () => dialog.close();
-  dialog.onclick = (e) => { if (e.target === dialog) dialog.close(); };
+  document.getElementById('openNewTaskBtn').onclick = () => openTaskModal();
+  document.getElementById('quickAddNavBtn').onclick = () => openTaskModal();
+  document.getElementById('closeTaskDialog').onclick = () => taskDialog.close();
+  document.getElementById('cancelTaskBtn').onclick = () => taskDialog.close();
 
-  // Añadir subtarea en borrador
+  taskDialog.onclick = (e) => {
+    if (e.target === taskDialog) taskDialog.close();
+  };
+
+  document.getElementById('closeStoryBtn').onclick = () => storyDialog.close();
+  storyDialog.onclick = (e) => {
+    if (e.target === storyDialog) storyDialog.close();
+  };
+  document.getElementById('storyCompleteBtn').onclick = async () => {
+    if (activeStoryTaskId) {
+      await toggleTask(activeStoryTaskId);
+      storyDialog.close();
+    }
+  };
+
   document.getElementById('addStepBtn').onclick = () => {
     const input = document.getElementById('newStepInput');
     const text = input.value.trim();
     if (!text) return;
     draftSteps.push({ id: `s_${Date.now()}`, text, done: false });
     input.value = '';
-    const list = document.getElementById('subtasksDraftList');
-    const item = document.createElement('div');
-    item.className = 'step';
-    item.textContent = `• ${text}`;
-    list.appendChild(item);
+    renderDraftSteps();
   };
 
-  // Guardar nueva tarea
   form.onsubmit = async (e) => {
     e.preventDefault();
-    const newTask = {
-    id: t_${Date.now()},
-    title: document.getElementById('taskTitle').value,
-    categoryId: document.getElementById('taskCategory').value,
-    startTime: document.getElementById('taskStart').value,
-    endTime: document.getElementById('taskEnd').value,
-    isFrog: document.getElementById('taskIsFrog').checked,
-    repeat: document.getElementById('taskRepeat').value,
-    completed: false,
-    steps: draftSteps
+    const editingId = document.getElementById('editingTaskId').value;
+    const payload = {
+      id: editingId || `t_${Date.now()}`,
+      title: document.getElementById('taskTitle').value,
+      categoryId: document.getElementById('taskCategory').value,
+      startTime: document.getElementById('taskStart').value,
+      endTime: document.getElementById('taskEnd').value,
+      isFrog: document.getElementById('taskIsFrog').checked,
+      repeat: document.getElementById('taskRepeat').value,
+      completed: false,
+      steps: draftSteps
     };
-    await commitState({ ...appState, tasks: [newTask, ...appState.tasks] });
-    dialog.close();
-    showToast('Tarea creada');
+
+    let nextTasks;
+    if (editingId) {
+      nextTasks = appState.tasks.map((t) => (t.id === editingId ? { ...t, ...payload, completed: t.completed } : t));
+    } else {
+      nextTasks = [payload, ...appState.tasks];
+    }
+
+    await commitState({ ...appState, tasks: nextTasks });
+    taskDialog.close();
+    showToast(editingId ? 'Tarea actualizada' : 'Tarea creada');
   };
-  // Nueva rutina
-    document.getElementById('addRoutineBtn').onclick = async () => {
+
+  document.getElementById('addRoutineBtn').onclick = async () => {
     const title = prompt('Nombre del nuevo hábito:');
     if (!title?.trim()) return;
-    const newRoutine = { id: r_${Date.now()}, title: title.trim(), days: Array(7).fill(false) };
+    const newRoutine = { id: `r_${Date.now()}`, title: title.trim(), days: Array(7).fill(false) };
     await commitState({ ...appState, routines: [...appState.routines, newRoutine] });
   };
-  // Perfil, Exportación e Importación JSON
-    document.getElementById('saveProfileBtn').onclick = async () => {
+
+  document.getElementById('saveProfileBtn').onclick = async () => {
     const name = document.getElementById('userNameInput').value;
     await commitState({ ...appState, user: { ...appState.user, name } });
     showToast('Perfil actualizado');
-    };
-    document.getElementById('exportJsonBtn').onclick = () => {
+  };
+
+  document.getElementById('exportJsonBtn').onclick = () => {
     const blob = new Blob([JSON.stringify(appState, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = enfoque-diario-${new Date().toISOString().slice(0, 10)}.json;
+    a.download = `enfoque-diario-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    };
-    document.getElementById('importJsonInput').onchange = async (e) => {
+  };
+
+  document.getElementById('importJsonInput').onchange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
     try {
-    appState = await storage.importJSON(e.target.files);
-    applyTheme(appState.user.theme);
-    renderAll();
-    showToast('Agenda restaurada con éxito');
+      appState = await storage.importJSON(file);
+      applyTheme(appState.user.theme);
+      renderAll();
+      showToast('Agenda restaurada con éxito');
     } catch (err) {
-    showToast(err.message);
+      showToast(err.message);
     } finally {
-    e.target.value = '';
+      e.target.value = '';
     }
   };
-  // Conexión Nube Gratuita
-    document.getElementById('cloudLoginBtn').onclick = async () => {
+
+  document.getElementById('cloudLoginBtn').onclick = async () => {
     try {
-    const email = document.getElementById('cloudEmailInput').value;
-    await cloudSync.sendMagicLink(email);
-    showToast('Revisa tu correo para confirmar el acceso');
+      const email = document.getElementById('cloudEmailInput').value;
+      await cloudSync.sendMagicLink(email);
+      showToast('Revisa tu correo para confirmar el acceso');
     } catch (err) {
-    showToast(err.message);
+      showToast(err.message);
     }
-    };
-    }
-    function registerServiceWorker() {
-    if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js').catch(() => {});
-    }
+  };
 }
+
+function registerServiceWorker() {
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  }
+}
+
 initApp();
