@@ -9,6 +9,19 @@ let activeStoryTaskId = null;
 
 async function initApp() {
   appState = await storage.getState();
+
+  // Verificar si venimos de un Magic Link o ya hay sesión activa
+  const session = cloudSync.captureSessionFromUrl();
+  if (session) {
+    document.getElementById('cloudStatusText').textContent = `Conectado como ${session.email}`;
+    const remoteState = await cloudSync.pullState(session);
+    // Si la nube tiene datos más recientes que el dispositivo, actualizar local
+    if (remoteState && remoteState.updatedAt > appState.updatedAt) {
+      appState = await storage.saveState(remoteState);
+      showToast('Agenda sincronizada desde la nube ☁️');
+    }
+  }
+
   applyTheme(appState.user.theme);
   updateHeaderDate();
   renderAll();
@@ -16,18 +29,15 @@ async function initApp() {
   registerServiceWorker();
 }
 
-function updateHeaderDate() {
-  const formatter = new Intl.DateTimeFormat('es-ES', { weekday: 'short', day: 'numeric', month: 'short' });
-  document.getElementById('currentDateLabel').textContent = formatter.format(new Date()).toUpperCase();
-}
-
-function applyTheme(theme) {
-  document.documentElement.classList.toggle('light', theme === 'light');
-}
-
 async function commitState(newState) {
   appState = await storage.saveState(newState);
   renderAll();
+
+  // Subir cambios en segundo plano si hay sesión activa
+  const session = cloudSync.getSession();
+  if (session) {
+    cloudSync.pushState(session, appState).catch(() => {});
+  }
 }
 
 function showToast(message, canUndo = false) {
