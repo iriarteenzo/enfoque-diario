@@ -1,215 +1,3 @@
-<<<<<<< HEAD:index.html
-<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="theme-color" content="#0e0e11">
-  <title>Enfoque Diario — Agenda & Rutinas</title>
-  <link rel="manifest" href="manifest.json">
-  <link rel="stylesheet" href="styles.css">
-</head>
-<body>
-  <!-- BARRA SUPERIOR -->
-  <header class="topbar">
-    <div class="topinner">
-      <button type="button" id="themeToggleBtn" class="iconbtn only-icon" aria-label="Cambiar tema claro/oscuro">
-        <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
-      </button>
-
-      <div class="brand">
-        <small id="currentDateLabel">HOY</small>
-        <strong>Enfoque Diario</strong>
-      </div>
-
-      <button type="button" id="heartsBadge" class="heart" aria-label="Rachas y corazones">
-        ❤️ <span id="heartsCount">2</span>
-      </button>
-    </div>
-  </header>
-
-  <main class="main">
-    <!-- VISTA 1: HOY (FEED + STORIES) -->
-    <section id="view-today" class="view active" aria-label="Tareas de hoy">
-      <div class="stories-wrap">
-        <div class="stories" id="storiesBar" role="list">
-          <!-- Renderizado dinámico -->
-        </div>
-      </div>
-
-      <div class="section-head">
-        <h1 class="eyebrow" style="margin:0;">AGENDA DE HOY</h1>
-        <button type="button" id="openNewTaskBtn" class="btn primary">+ Nueva tarea</button>
-      </div>
-
-      <div id="tasksFeed" class="feed" role="feed"></div>
-    </section>
-
-    <!-- VISTA 2: RUTINAS SEMANALES -->
-    <section id="view-routines" class="view" aria-label="Rutinas semanales">
-      <div class="page">
-        <header class="section-head" style="padding:0;">
-          <div>
-            <h1 class="page-title">Rutinas</h1>
-            <p class="page-sub">Seguimiento semanal de hábitos</p>
-          </div>
-          <button type="button" id="addRoutineBtn" class="btn primary">+ Hábito</button>
-        </header>
-
-        <div class="routinebox">
-          <div class="routine-grid" id="routinesGrid" role="table" aria-label="Tabla de rutinas">
-            <!-- Cabecera fija -->
-            <div class="routine-row" role="row">
-              <div class="routine-cell name head" role="columnheader">Hábito</div>
-              <div class="routine-cell head" role="columnheader" aria-label="Lunes">L</div>
-              <div class="routine-cell head" role="columnheader" aria-label="Martes">M</div>
-              <div class="routine-cell head" role="columnheader" aria-label="Miércoles">X</div>
-              <div class="routine-cell head" role="columnheader" aria-label="Jueves">J</div>
-              <div class="routine-cell head" role="columnheader" aria-label="Viernes">V</div>
-              <div class="routine-cell head" role="columnheader" aria-label="Sábado">S</div>
-              <div class="routine-cell head" role="columnheader" aria-label="Domingo">D</div>
-            </div>
-            <div id="routinesBody" style="display:contents;"></div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- VISTA 3: CUENTA, BACKUP Y NUBE -->
-    <section id="view-account" class="view" aria-label="Configuración y cuenta">
-      <div class="page">
-        <h1 class="page-title">Cuenta y Datos</h1>
-
-        <div class="panel">
-          <div class="profile">
-            <div class="avatar" id="userAvatar">U</div>
-            <div style="flex:1;">
-              <label for="userNameInput" class="eyebrow">Tu Nombre</label>
-              <input id="userNameInput" class="field" type="text" maxlength="40" placeholder="Tu nombre">
-            </div>
-          </div>
-          <button type="button" id="saveProfileBtn" class="btn primary">Guardar perfil</button>
-        </div>
-
-        <!-- Respaldo Local JSON (100% Privado y Gratuito) -->
-        <div class="panel">
-          <h2 class="eyebrow" style="margin:0;">COPIA DE SEGURIDAD LOCAL (JSON)</h2>
-          <p class="page-sub">Tus datos viven en IndexedDB de tu dispositivo. Exporta o restaura cuando quieras.</p>
-          <div class="row">
-            <button type="button" id="exportJsonBtn" class="btn" style="flex:1;">Exportar JSON</button>
-            <label class="btn" style="flex:1; cursor:pointer;">
-              Importar JSON
-              <input type="file" id="importJsonInput" accept=".json,application/json" class="hidden">
-            </label>
-          </div>
-        </div>
-
-        <!-- Sincronización Nube Gratuita (Opcional Supabase) -->
-        <div class="panel">
-          <h2 class="eyebrow" style="margin:0;">NUBE GRATUITA (SUPABASE)</h2>
-          <p class="page-sub" id="cloudStatusText">Modo Offline activo. Conecta tu proyecto gratuito de Supabase para sincronizar entre dispositivos.</p>
-          <div class="row">
-            <input id="cloudEmailInput" class="field" type="email" placeholder="tu@correo.com">
-            <button type="button" id="cloudLoginBtn" class="btn primary">Conectar</button>
-          </div>
-        </div>
-      </div>
-    </section>
-  </main>
-
-  <!-- NAVEGACIÓN INFERIOR -->
-  <nav class="nav" aria-label="Navegación principal">
-    <div class="navinner">
-      <button type="button" class="active" data-view="today">
-        <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
-        <span>Hoy</span>
-      </button>
-      <button type="button" data-view="routines">
-        <svg class="icon" viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-        <span>Rutinas</span>
-      </button>
-      <button type="button" id="quickAddNavBtn" aria-label="Crear tarea rápida">
-        <svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v8M8 12h8"/></svg>
-        <span>Crear</span>
-      </button>
-      <button type="button" data-view="account">
-        <svg class="icon" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-        <span>Cuenta</span>
-      </button>
-    </div>
-  </nav>
-
-  <!-- MODAL NATIVO <dialog>: NUEVA TAREA -->
-  <dialog id="taskDialog" class="native-dialog" aria-labelledby="taskDialogTitle">
-    <form method="dialog" id="taskForm" class="dialog-form">
-      <header class="dialoghead">
-        <h2 id="taskDialogTitle">Nueva tarea</h2>
-        <button type="button" class="iconbtn only-icon" id="closeTaskDialog" aria-label="Cerrar">
-          <svg class="icon" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg>
-        </button>
-      </header>
-
-      <div class="form-group">
-        <label for="taskTitle" class="eyebrow">Título de la tarea</label>
-        <input id="taskTitle" class="field" type="text" required maxlength="120" placeholder="Ej. Terminar propuesta de diseño">
-      </div>
-
-      <div class="row">
-        <div class="form-group" style="flex:1;">
-          <label for="taskCategory" class="eyebrow">Categoría</label>
-          <select id="taskCategory" class="field"></select>
-        </div>
-        <div class="form-group">
-          <label for="taskStart" class="eyebrow">Inicio</label>
-          <input id="taskStart" class="field" type="time" value="09:00">
-        </div>
-        <div class="form-group">
-          <label for="taskEnd" class="eyebrow">Fin</label>
-          <input id="taskEnd" class="field" type="time" value="10:00">
-        </div>
-      </div>
-
-      <label class="toggle-chip">
-        <input type="checkbox" id="taskIsFrog">
-        <span>🐸 Tarea crítica del día (Sapo)</span>
-      </label>
-
-      <details class="progressive-box">
-        <summary class="progressive-trigger">+ Subtareas y repetición</summary>
-        <div class="progressive-content">
-          <div class="form-group">
-            <label for="taskRepeat" class="eyebrow">Repetición</label>
-            <select id="taskRepeat" class="field">
-              <option value="none">Solo hoy</option>
-              <option value="daily">Diaria</option>
-              <option value="weekly">Semanal</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="eyebrow">Pasos</label>
-            <div id="subtasksDraftList" class="steps"></div>
-            <div class="row">
-              <input id="newStepInput" class="field" type="text" placeholder="Nuevo paso..." maxlength="100">
-              <button type="button" id="addStepBtn" class="btn">Añadir</button>
-            </div>
-          </div>
-        </div>
-      </details>
-
-      <div class="dialog-actions">
-        <button type="button" class="btn" id="cancelTaskBtn">Cancelar</button>
-        <button type="submit" class="btn primary">Guardar</button>
-      </div>
-    </form>
-  </dialog>
-
-  <!-- TOAST CON SOPORTE PARA "DESHACER" -->
-  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
-
-  <script type="module" src="js/app.js"></script>
-</body>
-</html>
-=======
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -239,7 +27,6 @@
   </header>
 
   <main class="main">
-    <!-- VISTA 1: HOY -->
     <section id="view-today" class="view active" aria-label="Agenda de hoy">
       <div class="stories-wrap">
         <div class="stories" id="storiesBar" role="list" aria-label="Resumen rápido por categoría"></div>
@@ -253,7 +40,6 @@
       <div id="tasksFeed" class="feed" role="feed"></div>
     </section>
 
-    <!-- VISTA 2: RUTINAS -->
     <section id="view-routines" class="view" aria-label="Rutinas semanales">
       <div class="page">
         <header class="section-head" style="padding:0;">
@@ -282,7 +68,6 @@
       </div>
     </section>
 
-    <!-- VISTA 3: CUENTA -->
     <section id="view-account" class="view" aria-label="Cuenta y copias de seguridad">
       <div class="page">
         <h1 class="page-title">Cuenta y Datos</h1>
@@ -322,7 +107,6 @@
     </section>
   </main>
 
-  <!-- NAVEGACIÓN INFERIOR -->
   <nav class="nav" aria-label="Navegación principal">
     <div class="navinner">
       <button type="button" class="active" data-view="today">
@@ -344,7 +128,6 @@
     </div>
   </nav>
 
-  <!-- MODAL NATIVO <dialog>: CREAR / EDITAR TAREA -->
   <dialog id="taskDialog" class="native-dialog" aria-labelledby="taskDialogTitle">
     <form method="dialog" id="taskForm" class="dialog-form">
       <header class="dialoghead">
@@ -410,7 +193,6 @@
     </form>
   </dialog>
 
-  <!-- MODAL NATIVO <dialog>: VISOR DE STORIES -->
   <dialog id="storyDialog" class="story-dialog" aria-labelledby="storyModalTitle">
     <div class="story-shell" id="storyShell">
       <div class="story-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="100">
@@ -433,4 +215,3 @@
   <script type="module" src="./js/app.js"></script>
 </body>
 </html>
->>>>>>> 072f10974782e651387a3a9a147dae9ad9e3c077:enfoque diario/index.html
