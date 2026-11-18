@@ -45,7 +45,7 @@ async function deferTask(id){const next=structuredClone(state),t=next.tasks.find
 async function deleteTask(id){undoState=structuredClone(state);await commit({...state,tasks:state.tasks.filter(t=>t.id!==id)});toast('Tarea eliminada',true)}
 
 function seedInitialAgenda(){
- if(state.tasks.length)return;
+ if(state.tasks.length)return false;
  const tasks=[],base=today(),weekday=new Date(base+'T12:00:00').getDay();
  const add=(offset,title,cat,start,end,steps=[],frog=false)=>tasks.push({id:'seed_'+offset+'_'+tasks.length,title,categoryId:cat,date:datePlus(base,offset),startTime:start,endTime:end,steps:steps.map((text,i)=>({id:'seedstep_'+offset+'_'+tasks.length+'_'+i,text,done:false})),completed:false,isFrog:frog,repeat:'none'});
  const daily=[
@@ -60,6 +60,7 @@ function seedInitialAgenda(){
  ];
  for(let offset=0;offset<7;offset++){const day=new Date(datePlus(base,offset)+'T12:00:00').getDay();daily.forEach((t,i)=>{if(i===2&&[0,6].includes(day))return;add(offset,...t)});if(day===1)add(offset,'Reclamar a Naturgy y revisar devolución de Amazon','cat_gestiones','10:45','11:30',[],true);if(day===1)add(offset,'Entrenamiento de tren superior','cat_salud','19:45','20:15',[]);if(day===2){add(offset,'Enviar facturas del seguro de Lupita a NN','cat_gestiones','10:45','11:15',[],true);add(offset,'Llamar a papá','cat_gestiones','11:15','11:30',[],true)}if(day===3){add(offset,'Revisar contrato de alquiler y cuentas del agua','cat_gestiones','10:45','11:30',[],true);add(offset,'Entrenamiento de tren inferior','cat_salud','19:45','20:15',[])}if(day===4)add(offset,'Reclamar por la bicicleta y revisar correo','cat_gestiones','10:45','11:30',[],true);if(day===5)add(offset,'Revisar suscripciones y devoluciones','cat_gestiones','10:45','11:30',[],true)}
  state.tasks=tasks;
+ return true;
 }
 
 function advanceSapos(){const d=today(),prev=datePlus(d,-1),next=structuredClone(state);let changed=false;next.tasks.forEach(t=>{if(t.date===prev&&t.isFrog&&!isDone(t)){t.date=d;changed=true}});if(changed)commit(next)}
@@ -83,5 +84,5 @@ function bind(){document.querySelectorAll('.nav [data-view]').forEach(b=>b.oncli
  $('closeStoryBtn').onclick=()=>{$('storyDialog').close();clearInterval(storyTimer)};$('storyAgendaBtn').onclick=openStoryAgenda;$('storyDialog').addEventListener('click',e=>{const r=$('storyShell').getBoundingClientRect();if(e.clientX<r.left+r.width*.25){if(storyIndex>0){storyIndex--;showStory()}}else if(e.clientX>r.left+r.width*.75)nextStory()});
  document.addEventListener('keydown',e=>{if(!$('storyDialog').open)return;if(e.key==='ArrowLeft'&&storyIndex>0){storyIndex--;showStory()}if(e.key==='ArrowRight')nextStory();if(e.key==='Escape')clearInterval(storyTimer)});
 }
-async function init(){state=await storage.getState();seedInitialAgenda();const session=cloudSync.captureSessionFromUrl();if(session){$('cloudStatusText').textContent='Conectado: '+session.email;try{const remote=await cloudSync.pullState(session);if(remote&&remote.updatedAt>state.updatedAt)state=await storage.saveState(remote)}catch{toast('No se pudo descargar la copia remota')}}advanceSapos();renderAll();bind();updateClock();setInterval(()=>{updateClock();updateCountdown()},1000);if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{})}
+async function init(){state=await storage.getState();if(seedInitialAgenda())state=await storage.saveState(state);const session=cloudSync.captureSessionFromUrl();if(session){$('cloudStatusText').textContent='Conectado: '+session.email;try{const remote=await cloudSync.pullState(session);if(remote&&remote.updatedAt>state.updatedAt)state=await storage.saveState(remote)}catch{toast('No se pudo descargar la copia remota')}}advanceSapos();renderAll();bind();updateClock();setInterval(()=>{updateClock();updateCountdown()},1000);if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{})}
 init().catch(e=>toast('Error al iniciar: '+e.message));
