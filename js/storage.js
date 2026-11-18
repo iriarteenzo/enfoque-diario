@@ -44,7 +44,7 @@ export class StorageService{
   if(!src||typeof src!=='object'||Array.isArray(src))throw new Error('La estructura de datos no es válida');
   const out=clone(DEFAULT_STATE);
   const u=src.user&&typeof src.user==='object'?src.user:src;
-  out.user.name=text(u.name,40)||'Usuario';
+  out.user.name=text(u.name??src.name,40)||'Usuario';
   out.user.hearts=Math.max(0,Math.min(999999,Number.isFinite(Number(u.hearts))?Math.floor(Number(u.hearts)):2));
   out.user.theme=u.theme==='light'?'light':'dark';
   out.user.avatar=typeof (u.avatar??src.avatarUrl)==='string'&&String(u.avatar??src.avatarUrl).startsWith('data:image/')&&String(u.avatar??src.avatarUrl).length<=1800000?String(u.avatar??src.avatarUrl):'';
@@ -52,14 +52,31 @@ export class StorageService{
    out.categories=src.categories.slice(0,40).map((c,i)=>({id:text(c?.id,48)||'cat_'+i,name:text(c?.name,60)||'Categoría',color:colorOk(c?.color)?c.color:'#53657a',icon:text(c?.icon??c?.emoji,12)||'📌',sort:Number.isFinite(c?.sort)?c.sort:i}));
   }
   const ids=new Set(out.categories.map(c=>c.id));
-  if(Array.isArray(src.tasks))out.tasks=src.tasks.slice(0,1500).map((t,i)=>{
-   const categoryId=ids.has(t?.categoryId)?t.categoryId:out.categories[0].id;
-   const isFrog=categoryId==='cat_gestiones'||Boolean(t?.isFrog??t?.sapo);
-   return {id:text(t?.id,64)||'task_'+i,title:text(t?.title,120)||'Tarea sin título',categoryId,date:dateOk(t?.date)?t.date:'',startTime:timeOk(t?.startTime??t?.start)?(t.startTime??t.start):'09:00',endTime:timeOk(t?.endTime??t?.end)?(t.endTime??t.end):'10:00',completed:Boolean(t?.completed),isFrog,repeat:['none','daily','weekly'].includes(t?.repeat)?t.repeat:'none',steps:Array.isArray(t?.steps)?t.steps.slice(0,60).map((s,j)=>({id:text(s?.id,64)||'step_'+j,text:text(s?.text,140),done:Boolean(s?.done)})).filter(s=>s.text):[],createdAt:Number(t?.createdAt)||Date.now(),deferredTo:dateOk(t?.deferredTo)?t.deferredTo:''};
-  });
+  if(Array.isArray(src.tasks)){
+   const expanded=[];
+   const baseDay=new Date();baseDay.setHours(12,0,0,0);
+   src.tasks.slice(0,1500).forEach((t,i)=>{
+    const catId=ids.has(t?.categoryId)?t.categoryId:out.categories[0].id;
+    const isFrog=catId==='cat_gestiones'||Boolean(t?.isFrog??t?.sapo);
+    const start=timeOk(t?.startTime??t?.start)?(t.startTime??t.start):'09:00';
+    const end=timeOk(t?.endTime??t?.end)?(t.endTime??t.end):'10:00';
+    const repeat=['none','daily','weekly'].includes(t?.repeat)?t.repeat:(Array.isArray(t?.days)&&t.days.length?'weekly':'none');
+    const dates=[];
+    if(dateOk(t?.date))dates.push(t.date);
+    else if(Array.isArray(t?.days)&&t.days.length){
+     for(let offset=0;offset<14;offset++){const d=new Date(baseDay);d.setDate(d.getDate()+offset);const weekday=(d.getDay()+6)%7;if(t.days.includes(weekday))dates.push([d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-'))}
+    }else dates.push(new Date().toLocaleDateString('en-CA'));
+    dates.slice(0,14).forEach((date,j)=>{
+     const steps=Array.isArray(t?.steps)?t.steps.slice(0,60).map((step,k)=>({id:text(step?.id,64)||'step_'+i+'_'+k,text:text(step?.text,140),done:Boolean(step?.done)||Boolean(step?.doneDates?.includes?.(date))})).filter(step=>step.text):[];
+     const completed=Boolean(t?.completed)||Boolean(t?.completedDates?.includes?.(date))||(steps.length>0&&steps.every(step=>step.done));
+     expanded.push({id:dates.length>1?(text(t?.id,64)||'task_'+i)+'_'+date:text(t?.id,64)||'task_'+i,title:text(t?.title,120)||'Tarea sin título',categoryId:catId,date,startTime:start,endTime:end,completed,isFrog,repeat,steps,createdAt:Number(t?.createdAt)||Date.now(),deferredTo:''});
+    });
+   });
+   out.tasks=expanded.slice(0,1500);
+  }
   if(Array.isArray(src.routines))out.routines=src.routines.slice(0,100).map((r,i)=>({id:text(r?.id,64)||'routine_'+i,title:text(r?.title,100)||'Rutina',days:Array.isArray(r?.days)&&r.days.length===7?r.days.map(Boolean):Array(7).fill(false)}));
   if(Array.isArray(src.habits))out.habits=src.habits.slice(0,60).map((h,i)=>typeof h==='string'?{id:'habit_'+i,emoji:'✨',text:text(h,140)}:{id:text(h?.id,64)||'habit_'+i,emoji:text(h?.emoji,8)||'✨',text:text(h?.text??h?.title,140)}).filter(h=>h.text);
-  if(src.storyViews&&typeof src.storyViews==='object'&&!Array.isArray(src.storyViews))out.storyViews=Object.fromEntries(Object.entries(src.storyViews).slice(0,2000).filter(([k,v])=>k.length<160&&typeof v==='boolean'));
+  const views=src.storyViews??src.seen;if(views&&typeof views==='object'&&!Array.isArray(views))out.storyViews=Object.fromEntries(Object.entries(views).slice(0,2000).filter(([k,v])=>k.length<160&&(typeof v==='boolean'||typeof v==='number')));
   out.updatedAt=Number.isFinite(Number(src.updatedAt))?Number(src.updatedAt):Date.now();
   out.version=4;
   return out;
