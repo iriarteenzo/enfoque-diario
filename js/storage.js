@@ -7,6 +7,7 @@ const text=(v,max=160)=>typeof v==='string'?v.replace(/[<>\u0000-\u001f\u007f]/g
 const dateOk=v=>typeof v==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(v);
 const timeOk=v=>typeof v==='string'&&/^([01]\d|2[0-3]):[0-5]\d$/.test(v);
 const colorOk=v=>typeof v==='string'&&/^#[0-9a-f]{6}$/i.test(v);
+const localToday=()=>{const d=new Date();return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-')};
 const clone=v=>structuredClone(v);
 export const DEFAULT_STATE={
  version:4,updatedAt:Date.now(),
@@ -65,7 +66,7 @@ export class StorageService{
     if(dateOk(t?.date))dates.push(t.date);
     else if(Array.isArray(t?.days)&&t.days.length){
      for(let offset=0;offset<14;offset++){const d=new Date(baseDay);d.setDate(d.getDate()+offset);const weekday=(d.getDay()+6)%7;if(t.days.includes(weekday))dates.push([d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-'))}
-    }else dates.push(new Date().toLocaleDateString('en-CA'));
+    }else dates.push(localToday());
     dates.slice(0,14).forEach((date,j)=>{
      const steps=Array.isArray(t?.steps)?t.steps.slice(0,60).map((step,k)=>({id:text(step?.id,64)||'step_'+i+'_'+k,text:text(step?.text,140),done:Boolean(step?.done)||Boolean(step?.doneDates?.includes?.(date))})).filter(step=>step.text):[];
      const completed=Boolean(t?.completed)||Boolean(t?.completedDates?.includes?.(date))||(steps.length>0&&steps.every(step=>step.done));
