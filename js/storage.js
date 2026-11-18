@@ -53,7 +53,8 @@ class StorageService {
     }
 
     const clean = structuredClone(DEFAULT_STATE);
-    clean.updatedAt = Number.isFinite(input.updatedAt) ? input.updatedAt : Date.now();
+    // Always set updatedAt to the current time to ensure consistency with saveState
+        clean.updatedAt = Date.now();
 
     if (input.user && typeof input.user === 'object') {
       clean.user.name = this.sanitizeText(input.user.name || 'Usuario', 40) || 'Usuario';
@@ -64,7 +65,7 @@ class StorageService {
     if (Array.isArray(input.categories) && input.categories.length > 0) {
       clean.categories = input.categories.slice(0, 25).map((c, i) => ({
         id: this.sanitizeText(c.id || `cat_${i}`, 32),
-        name: this.sanitizeText(c.name || 'General', 30),
+        color: /^#[0-9A-Fa-f]{3}([0-9A-Fa-f]{3})?$/.test(c.color) ? c.color : '#2563eb',
         color: /^#[0-9A-Fa-f]{6}$/.test(c.color) ? c.color : '#2563eb',
         icon: this.sanitizeText(c.icon || '📌', 4)
       }));
@@ -73,8 +74,9 @@ class StorageService {
     const defaultCatId = clean.categories[0].id;
 
     if (Array.isArray(input.tasks)) {
+      const baseTimestamp = Date.now();
       clean.tasks = input.tasks.slice(0, 500).map((t, i) => ({
-        id: this.sanitizeText(t.id || `t_${Date.now()}_${i}`, 40),
+        id: this.sanitizeText(t.id || `t_${baseTimestamp}_${i}`, 40),
         title: this.sanitizeText(t.title || 'Tarea sin título', 120),
         categoryId: this.sanitizeText(t.categoryId || defaultCatId, 32),
         startTime: /^\d{2}:\d{2}$/.test(t.startTime) ? t.startTime : '09:00',
@@ -128,7 +130,7 @@ class StorageService {
 
   async importJSON(file) {
     if (!file || file.size > 2 * 1024 * 1024) {
-      throw new Error('El archivo debe ser un JSON válido menor a 2 MB.');
+      throw new Error('El archivo debe ser un JSON válido menor o igual a 2 MB.');
     }
     let parsed;
     try {

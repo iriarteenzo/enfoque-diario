@@ -10,10 +10,12 @@ let activeStoryTaskId = null;
 async function initApp() {
   appState = await storage.getState();
 
+  // Verificar si venimos de un Magic Link o ya hay sesión activa
   const session = cloudSync.captureSessionFromUrl();
   if (session) {
     document.getElementById('cloudStatusText').textContent = `Conectado como ${session.email}`;
     const remoteState = await cloudSync.pullState(session);
+    // Si la nube tiene datos más recientes que el dispositivo, actualizar local
     if (remoteState && remoteState.updatedAt > appState.updatedAt) {
       appState = await storage.saveState(remoteState);
       showToast('Agenda sincronizada desde la nube ☁️');
@@ -27,19 +29,11 @@ async function initApp() {
   registerServiceWorker();
 }
 
-function updateHeaderDate() {
-  const formatter = new Intl.DateTimeFormat('es-ES', { weekday: 'short', day: 'numeric', month: 'short' });
-  document.getElementById('currentDateLabel').textContent = formatter.format(new Date()).toUpperCase();
-}
-
-function applyTheme(theme) {
-  document.documentElement.classList.toggle('light', theme === 'light');
-}
-
 async function commitState(newState) {
   appState = await storage.saveState(newState);
   renderAll();
 
+  // Subir cambios en segundo plano si hay sesión activa
   const session = cloudSync.getSession();
   if (session) {
     cloudSync.pushState(session, appState).catch(() => {});
@@ -394,7 +388,7 @@ function bindEvents() {
   });
 
   document.getElementById('themeToggleBtn').onclick = async () => {
-    const nextTheme = appState.user.theme === 'dark' ? 'light' : 'dark';
+    const nextTheme = getNextTheme(appState.user.theme);
     applyTheme(nextTheme);
     await commitState({ ...appState, user: { ...appState.user, theme: nextTheme } });
   };
@@ -426,7 +420,7 @@ function bindEvents() {
     const input = document.getElementById('newStepInput');
     const text = input.value.trim();
     if (!text) return;
-    draftSteps.push({ id: `s_${Date.now()}`, text, done: false });
+    draftSteps.push({ id: `s_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, text, done: false });
     input.value = '';
     renderDraftSteps();
   };
@@ -442,15 +436,16 @@ function bindEvents() {
       endTime: document.getElementById('taskEnd').value,
       isFrog: document.getElementById('taskIsFrog').checked,
       repeat: document.getElementById('taskRepeat').value,
-      completed: false,
       steps: draftSteps
     };
 
     let nextTasks;
     if (editingId) {
-      nextTasks = appState.tasks.map((t) => (t.id === editingId ? { ...t, ...payload, completed: t.completed } : t));
+      nextTasks = appState.tasks.map((t) =>
+        t.id === editingId ? { ...t, ...payload, completed: t.completed } : t
+      );
     } else {
-      nextTasks = [payload, ...appState.tasks];
+      nextTasks = [{ ...payload, completed: false }, ...appState.tasks];
     }
 
     await commitState({ ...appState, tasks: nextTasks });
@@ -478,15 +473,18 @@ function bindEvents() {
     a.href = url;
     a.download = `enfoque-diario-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 100);
   };
 
   document.getElementById('importJsonInput').onchange = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
     try {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
       appState = await storage.importJSON(file);
-      applyTheme(appState.user.theme);
+      if (appState?.user?.theme) {
+        applyTheme(appState.user.theme);
+      }
       renderAll();
       showToast('Agenda restaurada con éxito');
     } catch (err) {
