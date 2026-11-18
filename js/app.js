@@ -1,514 +1,88 @@
-import { storage } from './storage.js';
-import { cloudSync } from './cloud-sync.js';
+import {storage,DEFAULT_STATE} from './storage.js';
+import {cloudSync} from './cloud-sync.js';
+let state,stepsDraft=[],expandedId=null,storyQueue=[],storyIndex=0,storyTimer=null,storyStarted=0,storyDuration=6500,storyCategoryIndex=0,storyMode='task',habitPending=false,avatarData='';
+const $=id=>document.getElementById(id);
+const today=()=>{const d=new Date();return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-')};
+const datePlus=(s,n)=>{const d=new Date(s+'T12:00:00');d.setDate(d.getDate()+n);return todayFrom(d)};
+const todayFrom=d=>[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');
+const fmtDate=s=>new Date(s+'T12:00:00').toLocaleDateString('es-ES',{weekday:'long',day:'numeric',month:'long'});
+const catFor=t=>state.categories.find(c=>c.id===t.categoryId)||state.categories[0];
+const timeMin=s=>{const [h,m]=(s||'00:00').split(':').map(Number);return h*60+m};
+const nowMin=()=>new Date().getHours()*60+new Date().getMinutes();
+const escapeColor=s=>/^#[0-9a-f]{6}$/i.test(s||'')?s:'#53657a';
+function toast(msg,undo=false){const el=$('toast');el.replaceChildren();const span=document.createElement('span');span.textContent=msg;el.append(span);if(undo&&undoState){const b=document.createElement('button');b.textContent='Deshacer';b.onclick=()=>commit(undoState);el.append(b)}el.classList.remove('hidden');clearTimeout(toast.timer);toast.timer=setTimeout(()=>el.classList.add('hidden'),4500)}
+let undoState=null;
+async function commit(next){state=await storage.saveState(next);renderAll();const session=cloudSync.getSession();if(session&&navigator.onLine)cloudSync.pushState(session,state).then(()=>$('cloudStatusText').textContent='Conectado y sincronizado').catch(()=>{$('cloudStatusText').textContent='Sincronización pendiente';toast('Cambios guardados localmente; se sincronizarán al recuperar la conexión')})}
+function applyTheme(){document.documentElement.classList.toggle('light',state.user.theme==='light')}
+function updateClock(){const d=new Date();$('currentDateLabel').textContent=d.toLocaleDateString('es-ES',{weekday:'long',day:'numeric',month:'long'});$('clockLabel').textContent=d.toLocaleTimeString('es-ES',{hour12:false});}
+function dayTasks(date=today()){return state.tasks.filter(t=>t.date===date).sort((a,b)=>a.startTime.localeCompare(b.startTime))}
+function isDone(t){return t.completed||((t.steps||[]).length>0&&t.steps.every(s=>s.done))}
+function currentTask(){const n=nowMin();return dayTasks().find(t=>!isDone(t)&&timeMin(t.startTime)<=n&&timeMin(t.endTime)>=n)||dayTasks().find(t=>!isDone(t)&&timeMin(t.startTime)>n)||null}
+function renderAll(){applyTheme();$('heartsCount').textContent=state.user.hearts;$('userNameInput').value=state.user.name;$('avatarPreview').src=state.user.avatar||avatarPlaceholder(state.user.name);renderStories();renderFeed();renderWeek();renderRoutines();renderCategorySelect();renderCategorySettings()}
+function avatarPlaceholder(){return 'data:image/svg+xml;charset=utf-8,%3Csvg xmlns=%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22 viewBox=%220 0 100 100%22%3E%3Ccircle cx=%2250%22 cy=%2250%22 r=%2250%22 fill=%22%236b7280%22%2F%3E%3Ctext x=%2250%22 y=%2265%22 text-anchor=%22middle%22 font-size=%2248%22 fill=%22white%22%3EU%3C%2Ftext%3E%3C%2Fsvg%3E'}
+function renderStories(){const bar=$('storiesBar');bar.replaceChildren();const add=document.createElement('button');add.className='story add-story';const img=document.createElement('img');img.src=state.user.avatar||avatarPlaceholder(state.user.name);img.alt='Tu perfil';const plus=document.createElement('span');plus.textContent='+';add.append(img,plus);add.setAttribute('aria-label','Crear nueva tarea');add.onclick=()=>openTask();bar.append(add);
+ const cats=[...state.categories].sort((a,b)=>{const af=state.tasks.some(t=>t.date===today()&&t.categoryId===a.id&&t.isFrog&&!isDone(t)),bf=state.tasks.some(t=>t.date===today()&&t.categoryId===b.id&&t.isFrog&&!isDone(t));return Number(bf)-Number(af)});
+ cats.forEach(c=>{const b=document.createElement('button');b.className='story';b.style.setProperty('--cat',c.color);const ring=document.createElement('span');ring.className='story-ring';const ico=document.createElement('span');ico.textContent=c.icon;ring.append(ico);const label=document.createElement('span');label.className='story-label';label.textContent=c.name;b.append(ring,label);b.onclick=()=>startStories(c.id);bar.append(b)})}
+function taskCard(t,{weekly=false}={}){const c=catFor(t),done=isDone(t),card=document.createElement('article');card.className='task'+(done?' completed':'')+(t.isFrog?' frog':'');card.dataset.taskId=t.id;card.style.setProperty('--cat',c.color);
+ const head=document.createElement('div');head.className='task-head';const title=document.createElement('h2');title.textContent=t.title;const controls=document.createElement('div');controls.className='task-controls';const toggle=document.createElement('button');toggle.className='icon-action check '+(done?'done':'');toggle.textContent=done?'✓':'';toggle.setAttribute('aria-label',done?'Tarea completada':'Completar tarea');toggle.disabled=done;toggle.onclick=()=>completeTask(t.id);const expand=document.createElement('button');expand.className='icon-action';expand.textContent=expandedId===t.id||weekly?'⌃':'⌄';expand.setAttribute('aria-label','Mostrar detalles');expand.onclick=()=>{expandedId=expandedId===t.id?null:t.id;renderFeed()};const menu=document.createElement('details');menu.className='task-menu';const sum=document.createElement('summary');sum.textContent='⋯';sum.setAttribute('aria-label','Menú de tarea');const opts=document.createElement('div');opts.className='menu-options';[['Modificar',()=>openTask(t)],['Posponer a mañana',()=>deferTask(t.id)],['Eliminar',()=>deleteTask(t.id)]].forEach(([txt,fn])=>{const x=document.createElement('button');x.textContent=txt;x.onclick=fn;opts.append(x)});menu.append(sum,opts);controls.append(toggle,expand,menu);head.append(title,controls);card.append(head);
+ const details=weekly||expandedId===t.id;if(details){const meta=document.createElement('div');meta.className='task-meta';meta.textContent=c.icon+' '+c.name+' · '+t.startTime+'–'+t.endTime+(t.isFrog?' · SAPO':'');card.append(meta);
+ const steps=document.createElement('div');steps.className='task-steps';(t.steps||[]).forEach(s=>{const b=document.createElement('button');b.className='step'+(s.done?' done':'');b.textContent=(s.done?'☑ ':'☐ ')+s.text;b.setAttribute('aria-pressed',String(s.done));b.onclick=()=>toggleStep(t.id,s.id);steps.append(b)});if(t.steps?.length)card.append(steps);
+ if(!done&&!weekly){const foot=document.createElement('div');foot.className='task-foot';const left=document.createElement('span');left.textContent=t.steps?.length?t.steps.filter(s=>s.done).length+'/'+t.steps.length+' pasos':'Sin subtareas';foot.append(left);card.append(foot)}
+ }return card}
+function renderFeed(){const feed=$('tasksFeed');feed.replaceChildren();const tasks=dayTasks();if(!tasks.length){const e=document.createElement('p');e.className='empty';e.textContent='No hay tareas para hoy. Añade una nueva tarea.';feed.append(e);return}
+ const active=currentTask(),pending=tasks.filter(t=>!isDone(t)),completed=tasks.filter(isDone);if(active){const hero=document.createElement('section');hero.className='current-task';const kicker=document.createElement('p');kicker.className='eyebrow';kicker.textContent='AHORA';hero.append(kicker,taskCard(active,{weekly:true}));const countdown=document.createElement('div');countdown.className='countdown';countdown.id='currentCountdown';hero.append(countdown);feed.append(hero)}
+ const rest=[...pending.filter(t=>t.id!==active?.id),...completed];rest.forEach(t=>feed.append(taskCard(t)));updateCountdown()}
+function updateCountdown(){const el=$('currentCountdown');if(!el)return;const t=currentTask();if(!t){el.textContent='';return}const end=new Date();const [h,m]=t.endTime.split(':').map(Number);end.setHours(h,m,0,0);let sec=Math.max(0,Math.floor((end-Date.now())/1000));el.textContent='Tiempo disponible · '+String(Math.floor(sec/3600)).padStart(2,'0')+':'+String(Math.floor(sec%3600/60)).padStart(2,'0')+':'+String(sec%60).padStart(2,'0')}
+function renderWeek(){const root=$('weekAgenda');root.replaceChildren();const now=new Date();const mondayOffset=(now.getDay()+6)%7;const firstDate=datePlus(today(),-mondayOffset);for(let i=0;i<7;i++){const date=datePlus(firstDate,i);const group=document.createElement('section');group.className='day-group';const h=document.createElement('h2');h.textContent=fmtDate(date);group.append(h);const tasks=dayTasks(date);if(!tasks.length){const p=document.createElement('p');p.className='muted';p.textContent='Sin tareas';group.append(p)}tasks.forEach(t=>group.append(taskCard(t,{weekly:true})));root.append(group)}}
+function renderRoutines(){const root=$('routinesBody');root.replaceChildren();const days=['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];state.routines.forEach(r=>{const row=document.createElement('div');row.className='routine-row';const name=document.createElement('div');name.className='routine-cell name';name.textContent=r.title;row.append(name);r.days.forEach((v,i)=>{const cell=document.createElement('div');cell.className='routine-cell';const b=document.createElement('button');b.className='routine-dot'+(v?' on':'');b.textContent=v?'✓':'';b.setAttribute('aria-label',r.title+' '+days[i]);b.setAttribute('aria-pressed',String(v));b.onclick=()=>{const next=structuredClone(state);next.routines.find(x=>x.id===r.id).days[i]=!v;commit(next)};cell.append(b);row.append(cell)});root.append(row)})}
+function renderCategorySelect(){const s=$('taskCategory');s.replaceChildren();state.categories.forEach(c=>{const o=document.createElement('option');o.value=c.id;o.textContent=c.icon+' '+c.name;s.append(o)})}
+function renderCategorySettings(){const root=$('categorySettings');root.replaceChildren();state.categories.forEach(c=>{const row=document.createElement('div');row.className='category-edit';const icon=document.createElement('input');icon.className='field';icon.value=c.icon;icon.setAttribute('aria-label','Icono '+c.name);icon.maxLength=8;const name=document.createElement('input');name.className='field';name.value=c.name;name.setAttribute('aria-label','Nombre categoría');const color=document.createElement('input');color.type='color';color.value=escapeColor(c.color);color.setAttribute('aria-label','Color categoría');const save=document.createElement('button');save.className='btn';save.textContent='Guardar';save.onclick=()=>{const next=structuredClone(state),cat=next.categories.find(x=>x.id===c.id);cat.icon=icon.value.trim()||'📌';cat.name=name.value.trim()||'Categoría';cat.color=color.value;commit(next)};row.append(icon,name,color,save);root.append(row)})}
+function openTask(t=null){stepsDraft=t?structuredClone(t.steps||[]):[];$('taskDialogTitle').textContent=t?'Editar tarea':'Nueva tarea';$('editingTaskId').value=t?.id||'';$('taskTitle').value=t?.title||'';$('taskCategory').value=t?.categoryId||state.categories[0].id;$('taskDate').value=t?.date||today();$('taskStart').value=t?.startTime||'09:00';$('taskEnd').value=t?.endTime||'10:00';$('taskRepeat').value=t?.repeat||'none';renderDraftSteps();$('taskDialog').showModal()}
+function renderDraftSteps(){const root=$('subtasksDraftList');root.replaceChildren();stepsDraft.forEach((s,i)=>{const row=document.createElement('div');row.className='step';const text=document.createElement('span');text.textContent=s.text;const del=document.createElement('button');del.textContent='×';del.className='icon-action';del.setAttribute('aria-label','Eliminar paso');del.onclick=()=>{stepsDraft.splice(i,1);renderDraftSteps()};row.append(text,del);root.append(row)})}
+async function completeTask(id){const next=structuredClone(state),t=next.tasks.find(x=>x.id===id);if(!t||t.completed)return;if(t.steps?.length&&!t.steps.every(s=>s.done)){toast('Completa todos los pasos antes de finalizar la tarea');return}t.completed=true;if(t.isFrog)next.user.hearts++;undoState=structuredClone(state);await commit(next);toast(t.isFrog?'Sapo completado · +1 corazón':'Tarea completada',true)}
+async function toggleStep(id,sid){const next=structuredClone(state),t=next.tasks.find(x=>x.id===id),s=t?.steps.find(x=>x.id===sid);if(!s||t.completed)return;const wasComplete=t.steps.length>0&&t.steps.every(x=>x.done);s.done=!s.done;const nowComplete=t.steps.length>0&&t.steps.every(x=>x.done);if(nowComplete&&!wasComplete){t.completed=true;if(t.isFrog)next.user.hearts++}else if(wasComplete&&!nowComplete){t.completed=false;if(t.isFrog)next.user.hearts=Math.max(0,next.user.hearts-1)}await commit(next)}
+async function deferTask(id){const next=structuredClone(state),t=next.tasks.find(x=>x.id===id);if(!t)return;t.date=datePlus(t.date,1);t.completed=false;(t.steps||[]).forEach(s=>s.done=false);await commit(next);toast('Tarea pospuesta a mañana')}
+async function deleteTask(id){undoState=structuredClone(state);await commit({...state,tasks:state.tasks.filter(t=>t.id!==id)});toast('Tarea eliminada',true)}
 
-let appState = null;
-let draftSteps = [];
-let undoSnapshot = null;
-let toastTimer = null;
-let activeStoryTaskId = null;
-
-async function initApp() {
-  appState = await storage.getState();
-
-  // Verificar si venimos de un Magic Link o ya hay sesión activa
-  const session = cloudSync.captureSessionFromUrl();
-  if (session) {
-    document.getElementById('cloudStatusText').textContent = `Conectado como ${session.email}`;
-    const remoteState = await cloudSync.pullState(session);
-    // Si la nube tiene datos más recientes que el dispositivo, actualizar local
-    if (remoteState && remoteState.updatedAt > appState.updatedAt) {
-      appState = await storage.saveState(remoteState);
-      showToast('Agenda sincronizada desde la nube ☁️');
-    }
-  }
-
-  applyTheme(appState.user.theme);
-  updateHeaderDate();
-  renderAll();
-  bindEvents();
-  registerServiceWorker();
+function seedInitialAgenda(){
+ if(state.tasks.length)return false;
+ const tasks=[],base=today(),weekday=new Date(base+'T12:00:00').getDay();
+ const add=(offset,title,cat,start,end,steps=[],frog=false)=>tasks.push({id:'seed_'+offset+'_'+tasks.length,title,categoryId:cat,date:datePlus(base,offset),startTime:start,endTime:end,steps:steps.map((text,i)=>({id:'seedstep_'+offset+'_'+tasks.length+'_'+i,text,done:false})),completed:false,isFrog:frog,repeat:'none'});
+ const daily=[
+  ['Pulcro Matutino e Higiene','cat_casa','08:00','08:30',['Apagar alarma sin redes','Higiene personal y aseo de barba','Tender la cama','Ventilar la habitación','Beber agua y preparar café','Desayunar y dejar la cocina recogida']],
+  ['Paseo Matutino con Lupita','cat_salud','09:00','10:30',['Preparar correa y bolsas','Paseo y olfateo','Agua y limpieza de patas']],
+  ['Producción Fiera Dog','cat_fiera','12:00','14:00',[]],
+  ['Almuerzo','cat_casa','14:00','15:30',[]],
+  ['Estudio técnico','cat_estudios','15:30','17:00',[]],
+  ['Sprint de limpieza','cat_casa','16:00','17:00',[]],
+  ['Paseo vespertino con Lupita','cat_salud','17:30','19:30',[]],
+  ['Cierre de cocina','cat_casa','22:30','23:00',[]]
+ ];
+ for(let offset=0;offset<7;offset++){const day=new Date(datePlus(base,offset)+'T12:00:00').getDay();daily.forEach((t,i)=>{if(i===2&&[0,6].includes(day))return;add(offset,...t)});if(day===1)add(offset,'Reclamar a Naturgy y revisar devolución de Amazon','cat_gestiones','10:45','11:30',[],true);if(day===1)add(offset,'Entrenamiento de tren superior','cat_salud','19:45','20:15',[]);if(day===2){add(offset,'Enviar facturas del seguro de Lupita a NN','cat_gestiones','10:45','11:15',[],true);add(offset,'Llamar a papá','cat_gestiones','11:15','11:30',[],true)}if(day===3){add(offset,'Revisar contrato de alquiler y cuentas del agua','cat_gestiones','10:45','11:30',[],true);add(offset,'Entrenamiento de tren inferior','cat_salud','19:45','20:15',[])}if(day===4)add(offset,'Reclamar por la bicicleta y revisar correo','cat_gestiones','10:45','11:30',[],true);if(day===5)add(offset,'Revisar suscripciones y devoluciones','cat_gestiones','10:45','11:30',[],true)}
+ state.tasks=tasks;
+ return true;
 }
 
-async function commitState(newState) {
-  appState = await storage.saveState(newState);
-  renderAll();
-
-  // Subir cambios en segundo plano si hay sesión activa
-  const session = cloudSync.getSession();
-  if (session) {
-    cloudSync.pushState(session, appState).catch(() => {});
-  }
+function advanceSapos(){const d=today(),prev=datePlus(d,-1),next=structuredClone(state);let changed=false;next.tasks.forEach(t=>{if(t.date<d&&t.isFrog&&!isDone(t)){t.date=d;changed=true}});if(changed)commit(next)}
+function switchView(view){document.querySelectorAll('.view').forEach(v=>v.classList.toggle('active',v.id==='view-'+view));document.querySelectorAll('.nav [data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));if(view==='week')renderWeek()}
+function storyTasks(catId){return dayTasks().filter(t=>t.categoryId===catId)}
+function startStories(catId){const cats=state.categories;storyCategoryIndex=cats.findIndex(c=>c.id===catId);storyQueue=storyTasks(catId);storyIndex=0;storyMode='task';habitPending=false;if(!storyQueue.length){const c=cats[storyCategoryIndex];storyQueue=[{id:'empty_'+c.id,title:'Todo al día',categoryId:c.id,startTime:'',endTime:'',steps:[],completed:true}]}$('storyDialog').showModal();showStory()}
+function showStory(){clearInterval(storyTimer);const c=state.categories[storyCategoryIndex];$('storyShell').style.backgroundColor=c.color;$('storyModalCat').textContent=c.icon+' '+c.name;$('storyProgress').replaceChildren();const total=storyQueue.length;for(let i=0;i<total;i++){const track=document.createElement('span');track.className='story-track';const fill=document.createElement('i');fill.style.width=i<storyIndex?'100%':'0%';track.append(fill);$('storyProgress').append(track)}
+ if(storyMode==='habit'){const habit=state.habits[Math.floor(Math.random()*state.habits.length)];$('storyModalCat').textContent='SUGERENCIA';$('storyModalTitle').textContent=habit?.text||'Pausa consciente';$('storyModalMeta').textContent='Un pequeño hábito para recuperar el foco';$('storySteps').replaceChildren();$('storyAgendaBtn').classList.add('hidden')}else{const t=storyQueue[storyIndex];$('storyModalTitle').textContent=t.title;$('storyModalMeta').textContent=t.startTime?' '+t.startTime+'–'+t.endTime:'';$('storySteps').replaceChildren();(t.steps||[]).forEach(s=>{const p=document.createElement('p');p.textContent=(s.done?'✓ ':'○ ')+s.text;$('storySteps').append(p)});$('storyAgendaBtn').classList.remove('hidden')}
+ storyStarted=Date.now();storyTimer=setInterval(()=>{const pct=Math.min(100,(Date.now()-storyStarted)/storyDuration*100);const current=$('storyProgress').children[storyIndex];if(current)current.firstElementChild.style.width=pct+'%';if(pct>=100)nextStory()},100)}
+function nextStory(){clearInterval(storyTimer);if(storyMode==='habit'){storyMode='task';storyIndex++;if(storyIndex>=storyQueue.length){storyCategoryIndex++;if(storyCategoryIndex>=state.categories.length){$('storyDialog').close();return}storyQueue=storyTasks(state.categories[storyCategoryIndex].id);storyIndex=0;if(!storyQueue.length){const c=state.categories[storyCategoryIndex];storyQueue=[{id:'empty_'+c.id,title:'Todo al día',categoryId:c.id,steps:[]}]} }showStory();return}
+ if(storyIndex<storyQueue.length-1){storyIndex++;if(state.habits.length&&Math.random()<.35){storyMode='habit'}showStory();return}storyCategoryIndex++;if(storyCategoryIndex>=state.categories.length){$('storyDialog').close();return}storyQueue=storyTasks(state.categories[storyCategoryIndex].id);storyIndex=0;if(!storyQueue.length){const c=state.categories[storyCategoryIndex];storyQueue=[{id:'empty_'+c.id,title:'Todo al día',categoryId:c.id,steps:[]}]}if(state.habits.length&&Math.random()<.35)storyMode='habit';showStory()}
+function openStoryAgenda(){const t=storyQueue[storyIndex];if(!t||t.id.startsWith('empty_'))return;$('storyDialog').close();switchView('week');requestAnimationFrame(()=>{const card=document.querySelector('[data-task-id="'+CSS.escape(t.id)+'"]');if(card){card.scrollIntoView({behavior:'smooth',block:'center'});card.classList.add('target-highlight');setTimeout(()=>card.classList.remove('target-highlight'),2200)}})}
+function bind(){document.querySelectorAll('.nav [data-view]').forEach(b=>b.onclick=()=>switchView(b.dataset.view));$('themeToggleBtn').onclick=()=>commit({...state,user:{...state.user,theme:state.user.theme==='dark'?'light':'dark'}});$('heartsBadge').onclick=()=>toast('Los sapos completados suman corazones');$('openNewTaskBtn').onclick=()=>openTask();$('closeTaskDialog').onclick=$('cancelTaskBtn').onclick=()=>$('taskDialog').close();$('taskForm').onsubmit=async e=>{e.preventDefault();const id=$('editingTaskId').value;const catId=$('taskCategory').value;const payload={id:id||'t_'+crypto.randomUUID(),title:$('taskTitle').value.trim(),categoryId:catId,date:$('taskDate').value,startTime:$('taskStart').value,endTime:$('taskEnd').value,isFrog:catId==='cat_gestiones',repeat:$('taskRepeat').value,steps:stepsDraft,completed:false};if(payload.endTime<=payload.startTime){toast('La hora de fin debe ser posterior al inicio');return}let tasks;if(id)tasks=state.tasks.map(t=>t.id===id?{...t,...payload,completed:t.completed}:t);else tasks=[...state.tasks,payload];if(payload.repeat==='daily'||payload.repeat==='weekly'){for(let i=1;i<=6;i++){const date=datePlus(payload.date,payload.repeat==='daily'?i:i*7);tasks.push({...payload,id:'t_'+crypto.randomUUID(),date,completed:false,steps:payload.steps.map(s=>({...s,id:'s_'+crypto.randomUUID(),done:false}))})}}await commit({...state,tasks});$('taskDialog').close();toast(id?'Tarea actualizada':'Tarea creada')};
+ $('addStepBtn').onclick=()=>{const v=$('newStepInput').value.trim();if(v){stepsDraft.push({id:'s_'+crypto.randomUUID(),text:v,done:false});$('newStepInput').value='';renderDraftSteps()}};
+ $('addRoutineBtn').onclick=()=>{const title=prompt('Nombre del hábito');if(title?.trim())commit({...state,routines:[...state.routines,{id:'r_'+crypto.randomUUID(),title:title.trim(),days:Array(7).fill(false)}]})};
+ $('saveProfileBtn').onclick=()=>commit({...state,user:{...state.user,name:$('userNameInput').value.trim()||'Usuario',avatar:avatarData||state.user.avatar}});
+ $('avatarInput').onchange=async e=>{const f=e.target.files?.[0];if(!f)return;if(!f.type.startsWith('image/')||f.size>1200000){toast('Elige una imagen de menos de 1,2 MB');return}const reader=new FileReader();reader.onload=()=>{avatarData=reader.result;$('avatarPreview').src=avatarData};reader.readAsDataURL(f)};
+ $('exportJsonBtn').onclick=()=>{const a=document.createElement('a'),url=URL.createObjectURL(new Blob([JSON.stringify(state,null,2)],{type:'application/json'}));a.href=url;a.download='enfoque-diario-'+today()+'.json';a.click();URL.revokeObjectURL(url)};
+ $('importJsonInput').onchange=async e=>{try{const f=e.target.files?.[0];if(f){state=await storage.importJSON(f);renderAll();toast('Copia restaurada')}}catch(err){toast(err.message)}e.target.value=''};
+ $('cloudLoginBtn').onclick=async()=>{try{await cloudSync.sendMagicLink($('cloudEmailInput').value.trim());$('cloudStatusText').textContent='Enlace enviado. Revisa tu correo y abre el enlace en este dispositivo.';toast('Revisa tu correo para acceder')}catch(e){$('cloudStatusText').textContent=e.message;toast(e.message)}};const logout=$('cloudLogoutBtn');if(logout)logout.onclick=async()=>{try{await cloudSync.signOut();$('cloudStatusText').textContent='Sesión cerrada. Los datos locales se conservan.';toast('Sesión de nube cerrada')}catch(e){toast(e.message)}};
+ $('closeStoryBtn').onclick=()=>{$('storyDialog').close();clearInterval(storyTimer)};$('storyAgendaBtn').onclick=openStoryAgenda;$('storyDialog').addEventListener('click',e=>{const r=$('storyShell').getBoundingClientRect();if(e.clientX<r.left+r.width*.25){if(storyIndex>0){storyIndex--;showStory()}}else if(e.clientX>r.left+r.width*.75)nextStory()});
+ document.addEventListener('keydown',e=>{if(!$('storyDialog').open)return;if(e.key==='ArrowLeft'&&storyIndex>0){storyIndex--;showStory()}if(e.key==='ArrowRight')nextStory();if(e.key==='Escape')clearInterval(storyTimer)});
 }
-
-function showToast(message, canUndo = false) {
-  const toast = document.getElementById('toast');
-  toast.replaceChildren();
-
-  const span = document.createElement('span');
-  span.textContent = message;
-  toast.appendChild(span);
-
-  if (canUndo && undoSnapshot) {
-    const undoBtn = document.createElement('button');
-    undoBtn.type = 'button';
-    undoBtn.textContent = 'Deshacer';
-    undoBtn.onclick = async () => {
-      await commitState(undoSnapshot);
-      undoSnapshot = null;
-      toast.classList.add('hidden');
-    };
-    toast.appendChild(undoBtn);
-  }
-
-  toast.classList.remove('hidden');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toast.classList.add('hidden'), 5000);
-}
-
-function renderAll() {
-  document.getElementById('heartsCount').textContent = appState.user.hearts;
-  document.getElementById('userNameInput').value = appState.user.name;
-  document.getElementById('userAvatar').textContent = appState.user.name.charAt(0).toUpperCase();
-
-  renderStories();
-  renderFeed();
-  renderRoutines();
-  renderCategorySelect();
-}
-
-function renderStories() {
-  const bar = document.getElementById('storiesBar');
-  bar.replaceChildren();
-
-  appState.categories.forEach((cat) => {
-    const pendingTask = appState.tasks.find((t) => t.categoryId === cat.id && !t.completed);
-
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'story';
-    btn.setAttribute('aria-label', `Ver resumen de ${cat.name}`);
-
-    const ring = document.createElement('div');
-    ring.className = `story-ring ${pendingTask ? '' : 'done'}`;
-
-    const inner = document.createElement('div');
-    inner.className = 'story-inner';
-    inner.textContent = cat.icon;
-    ring.appendChild(inner);
-
-    const label = document.createElement('span');
-    label.className = 'story-label';
-    label.textContent = cat.name;
-
-    btn.append(ring, label);
-    btn.onclick = () => openStoryForCategory(cat, pendingTask);
-    bar.appendChild(btn);
-  });
-}
-
-function openStoryForCategory(cat, task) {
-  const storyDialog = document.getElementById('storyDialog');
-  const shell = document.getElementById('storyShell');
-  shell.style.backgroundColor = cat.color;
-
-  document.getElementById('storyModalCat').textContent = `${cat.icon} ${cat.name}`;
-  const completeBtn = document.getElementById('storyCompleteBtn');
-
-  if (task) {
-    activeStoryTaskId = task.id;
-    document.getElementById('storyModalTitle').textContent = task.title;
-    document.getElementById('storyModalMeta').textContent = `⏰ ${task.startTime} – ${task.endTime}`;
-    completeBtn.classList.remove('hidden');
-  } else {
-    activeStoryTaskId = null;
-    document.getElementById('storyModalTitle').textContent = '¡Todo al día en esta categoría!';
-    document.getElementById('storyModalMeta').textContent = 'No tienes tareas pendientes aquí.';
-    completeBtn.classList.add('hidden');
-  }
-
-  storyDialog.showModal();
-}
-
-function renderFeed() {
-  const feed = document.getElementById('tasksFeed');
-  feed.replaceChildren();
-
-  if (appState.tasks.length === 0) {
-    const empty = document.createElement('div');
-    empty.className = 'empty';
-    empty.textContent = 'No tienes tareas pendientes hoy. Toca "+ Nueva tarea" para empezar.';
-    feed.appendChild(empty);
-    return;
-  }
-
-  const sorted = [...appState.tasks].sort(
-    (a, b) => Number(a.completed) - Number(b.completed) || Number(b.isFrog) - Number(a.isFrog)
-  );
-
-  sorted.forEach((task) => {
-    const cat = appState.categories.find((c) => c.id === task.categoryId) || appState.categories[0];
-    const card = document.createElement('article');
-    card.className = `task ${task.completed ? 'completed' : ''}`;
-
-    const header = document.createElement('div');
-    header.className = 'ig-header';
-    const catInfo = document.createElement('div');
-    catInfo.className = 'ig-cat';
-    catInfo.textContent = `${cat.icon} ${cat.name} ${task.isFrog ? '• 🐸 Prioridad' : ''}`;
-    header.appendChild(catInfo);
-    card.appendChild(header);
-
-    const body = document.createElement('div');
-    body.className = 'ig-body';
-    body.style.backgroundColor = cat.color;
-
-    const info = document.createElement('div');
-    const title = document.createElement('h2');
-    title.className = 'ig-title';
-    title.textContent = task.title;
-    const meta = document.createElement('div');
-    meta.className = 'ig-time-meta';
-    meta.textContent = `⏰ ${task.startTime} – ${task.endTime}`;
-    info.append(title, meta);
-
-    const checkBtn = document.createElement('button');
-    checkBtn.type = 'button';
-    checkBtn.className = `check ${task.completed ? 'done' : ''}`;
-    checkBtn.setAttribute('aria-label', `Marcar "${task.title}" como ${task.completed ? 'pendiente' : 'completada'}`);
-    checkBtn.textContent = task.completed ? '✓' : '';
-    checkBtn.onclick = () => toggleTask(task.id);
-
-    body.append(info, checkBtn);
-    card.appendChild(body);
-
-    if (task.steps.length > 0) {
-      const wrap = document.createElement('div');
-      wrap.className = 'task-details-wrap';
-      const stepsDiv = document.createElement('div');
-      stepsDiv.className = 'steps';
-
-      task.steps.forEach((step) => {
-        const sBtn = document.createElement('button');
-        sBtn.type = 'button';
-        sBtn.className = `step ${step.done ? 'done' : ''}`;
-        sBtn.textContent = `${step.done ? '☑' : '☐'} ${step.text}`;
-        sBtn.onclick = () => toggleStep(task.id, step.id);
-        stepsDiv.appendChild(sBtn);
-      });
-      wrap.appendChild(stepsDiv);
-      card.appendChild(wrap);
-    }
-
-    const actions = document.createElement('div');
-    actions.className = 'ig-actions';
-
-    const editBtn = document.createElement('button');
-    editBtn.type = 'button';
-    editBtn.className = 'icon-action-btn';
-    editBtn.setAttribute('aria-label', 'Editar tarea');
-    editBtn.textContent = '✏️';
-    editBtn.onclick = () => openTaskModal(task);
-
-    const delBtn = document.createElement('button');
-    delBtn.type = 'button';
-    delBtn.className = 'icon-action-btn danger';
-    delBtn.setAttribute('aria-label', 'Eliminar tarea');
-    delBtn.textContent = '🗑';
-    delBtn.onclick = () => deleteTask(task.id);
-
-    actions.append(editBtn, delBtn);
-    card.appendChild(actions);
-
-    feed.appendChild(card);
-  });
-}
-
-function renderRoutines() {
-  const body = document.getElementById('routinesBody');
-  body.replaceChildren();
-  const dayNames = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
-
-  appState.routines.forEach((r) => {
-    const row = document.createElement('div');
-    row.className = 'routine-row';
-    row.setAttribute('role', 'row');
-
-    const nameCell = document.createElement('div');
-    nameCell.className = 'routine-cell name';
-    nameCell.setAttribute('role', 'rowheader');
-
-    const titleSpan = document.createElement('span');
-    titleSpan.textContent = r.title;
-
-    const delRoutineBtn = document.createElement('button');
-    delRoutineBtn.type = 'button';
-    delRoutineBtn.className = 'routine-del';
-    delRoutineBtn.setAttribute('aria-label', `Eliminar hábito ${r.title}`);
-    delRoutineBtn.textContent = '✕';
-    delRoutineBtn.onclick = async () => {
-      undoSnapshot = structuredClone(appState);
-      const updated = structuredClone(appState);
-      updated.routines = updated.routines.filter((item) => item.id !== r.id);
-      await commitState(updated);
-      showToast('Hábito eliminado', true);
-    };
-
-    nameCell.append(titleSpan, delRoutineBtn);
-    row.appendChild(nameCell);
-
-    r.days.forEach((done, idx) => {
-      const cell = document.createElement('div');
-      cell.className = 'routine-cell';
-      cell.setAttribute('role', 'cell');
-
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = `routine-dot ${done ? 'on' : ''}`;
-      btn.setAttribute('aria-pressed', String(done));
-      btn.setAttribute('aria-label', `${r.title} - ${dayNames[idx]}`);
-      btn.textContent = done ? '✓' : '';
-      btn.onclick = async () => {
-        const updated = structuredClone(appState);
-        const target = updated.routines.find((item) => item.id === r.id);
-        target.days[idx] = !target.days[idx];
-        await commitState(updated);
-      };
-
-      cell.appendChild(btn);
-      row.appendChild(cell);
-    });
-
-    body.appendChild(row);
-  });
-}
-
-function renderCategorySelect() {
-  const sel = document.getElementById('taskCategory');
-  sel.replaceChildren();
-  appState.categories.forEach((c) => {
-    const opt = document.createElement('option');
-    opt.value = c.id;
-    opt.textContent = `${c.icon} ${c.name}`;
-    sel.appendChild(opt);
-  });
-}
-
-function renderDraftSteps() {
-  const list = document.getElementById('subtasksDraftList');
-  list.replaceChildren();
-  draftSteps.forEach((step, idx) => {
-    const item = document.createElement('div');
-    item.className = 'step';
-
-    const span = document.createElement('span');
-    span.textContent = `• ${step.text}`;
-
-    const rmBtn = document.createElement('button');
-    rmBtn.type = 'button';
-    rmBtn.textContent = '✕';
-    rmBtn.setAttribute('aria-label', 'Quitar paso');
-    rmBtn.onclick = () => {
-      draftSteps.splice(idx, 1);
-      renderDraftSteps();
-    };
-
-    item.append(span, rmBtn);
-    list.appendChild(item);
-  });
-}
-
-function openTaskModal(taskToEdit = null) {
-  const dialog = document.getElementById('taskDialog');
-  const form = document.getElementById('taskForm');
-  const details = document.getElementById('taskAdvancedDetails');
-  form.reset();
-
-  if (taskToEdit) {
-    document.getElementById('taskDialogTitle').textContent = 'Editar tarea';
-    document.getElementById('editingTaskId').value = taskToEdit.id;
-    document.getElementById('taskTitle').value = taskToEdit.title;
-    document.getElementById('taskCategory').value = taskToEdit.categoryId;
-    document.getElementById('taskStart').value = taskToEdit.startTime;
-    document.getElementById('taskEnd').value = taskToEdit.endTime;
-    document.getElementById('taskIsFrog').checked = taskToEdit.isFrog;
-    document.getElementById('taskRepeat').value = taskToEdit.repeat;
-    draftSteps = structuredClone(taskToEdit.steps);
-    details.open = draftSteps.length > 0 || taskToEdit.repeat !== 'none';
-  } else {
-    document.getElementById('taskDialogTitle').textContent = 'Nueva tarea';
-    document.getElementById('editingTaskId').value = '';
-    draftSteps = [];
-    details.open = false;
-  }
-
-  renderDraftSteps();
-  dialog.showModal();
-}
-
-async function toggleTask(id) {
-  const updated = structuredClone(appState);
-  const t = updated.tasks.find((item) => item.id === id);
-  if (!t) return;
-  t.completed = !t.completed;
-  if (t.completed && t.isFrog) {
-    updated.user.hearts += 1;
-    showToast('🐸 ¡Sapo completado! +1 ❤️');
-  }
-  await commitState(updated);
-}
-
-async function toggleStep(taskId, stepId) {
-  const updated = structuredClone(appState);
-  const t = updated.tasks.find((item) => item.id === taskId);
-  const s = t?.steps.find((item) => item.id === stepId);
-  if (s) s.done = !s.done;
-  await commitState(updated);
-}
-
-async function deleteTask(id) {
-  undoSnapshot = structuredClone(appState);
-  const updated = structuredClone(appState);
-  updated.tasks = updated.tasks.filter((t) => t.id !== id);
-  await commitState(updated);
-  showToast('Tarea eliminada', true);
-}
-
-function bindEvents() {
-  const taskDialog = document.getElementById('taskDialog');
-  const storyDialog = document.getElementById('storyDialog');
-  const form = document.getElementById('taskForm');
-
-  document.querySelectorAll('.nav button[data-view]').forEach((btn) => {
-    btn.onclick = () => {
-      document.querySelectorAll('.nav button').forEach((b) => b.classList.remove('active'));
-      btn.classList.add('active');
-      document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
-      document.getElementById(`view-${btn.dataset.view}`).classList.add('active');
-    };
-  });
-
-  document.getElementById('themeToggleBtn').onclick = async () => {
-    const nextTheme = getNextTheme(appState.user.theme);
-    applyTheme(nextTheme);
-    await commitState({ ...appState, user: { ...appState.user, theme: nextTheme } });
-  };
-
-  document.getElementById('heartsBadge').onclick = () => {
-    showToast('Completa tareas críticas (🐸) para ganar corazones ❤️');
-  };
-
-  document.getElementById('openNewTaskBtn').onclick = () => openTaskModal();
-  document.getElementById('quickAddNavBtn').onclick = () => openTaskModal();
-  document.getElementById('closeTaskDialog').onclick = () => taskDialog.close();
-  document.getElementById('cancelTaskBtn').onclick = () => taskDialog.close();
-  taskDialog.onclick = (e) => {
-    if (e.target === taskDialog) taskDialog.close();
-  };
-
-  document.getElementById('closeStoryBtn').onclick = () => storyDialog.close();
-  storyDialog.onclick = (e) => {
-    if (e.target === storyDialog) storyDialog.close();
-  };
-  document.getElementById('storyCompleteBtn').onclick = async () => {
-    if (activeStoryTaskId) {
-      await toggleTask(activeStoryTaskId);
-      storyDialog.close();
-    }
-  };
-
-  document.getElementById('addStepBtn').onclick = () => {
-    const input = document.getElementById('newStepInput');
-    const text = input.value.trim();
-    if (!text) return;
-    draftSteps.push({ id: `s_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, text, done: false });
-    input.value = '';
-    renderDraftSteps();
-  };
-
-  form.onsubmit = async (e) => {
-    e.preventDefault();
-    const editingId = document.getElementById('editingTaskId').value;
-    const payload = {
-      id: editingId || `t_${Date.now()}`,
-      title: document.getElementById('taskTitle').value,
-      categoryId: document.getElementById('taskCategory').value,
-      startTime: document.getElementById('taskStart').value,
-      endTime: document.getElementById('taskEnd').value,
-      isFrog: document.getElementById('taskIsFrog').checked,
-      repeat: document.getElementById('taskRepeat').value,
-      steps: draftSteps
-    };
-
-    let nextTasks;
-    if (editingId) {
-      nextTasks = appState.tasks.map((t) =>
-        t.id === editingId ? { ...t, ...payload, completed: t.completed } : t
-      );
-    } else {
-      nextTasks = [{ ...payload, completed: false }, ...appState.tasks];
-    }
-
-    await commitState({ ...appState, tasks: nextTasks });
-    taskDialog.close();
-    showToast(editingId ? 'Tarea actualizada' : 'Tarea creada');
-  };
-
-  document.getElementById('addRoutineBtn').onclick = async () => {
-    const title = prompt('Nombre del nuevo hábito:');
-    if (!title?.trim()) return;
-    const newRoutine = { id: `r_${Date.now()}`, title: title.trim(), days: Array(7).fill(false) };
-    await commitState({ ...appState, routines: [...appState.routines, newRoutine] });
-  };
-
-  document.getElementById('saveProfileBtn').onclick = async () => {
-    const name = document.getElementById('userNameInput').value;
-    await commitState({ ...appState, user: { ...appState.user, name } });
-    showToast('Perfil actualizado');
-  };
-
-  document.getElementById('exportJsonBtn').onclick = () => {
-    const blob = new Blob([JSON.stringify(appState, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `enfoque-diario-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 100);
-  };
-
-  document.getElementById('importJsonInput').onchange = async (e) => {
-    try {
-      const file = e.target.files?.[0];
-      if (!file) return;
-
-      appState = await storage.importJSON(file);
-      if (appState?.user?.theme) {
-        applyTheme(appState.user.theme);
-      }
-      renderAll();
-      showToast('Agenda restaurada con éxito');
-    } catch (err) {
-      showToast(err.message);
-    } finally {
-      e.target.value = '';
-    }
-  };
-
-  document.getElementById('cloudLoginBtn').onclick = async () => {
-    try {
-      const email = document.getElementById('cloudEmailInput').value;
-      await cloudSync.sendMagicLink(email);
-      showToast('Revisa tu correo para confirmar el acceso');
-    } catch (err) {
-      showToast(err.message);
-    }
-  };
-}
-
-function registerServiceWorker() {
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js').catch(() => {});
-  }
-}
-
-initApp();
+async function init(){state=await storage.getState();if(!cloudSync.isConfigured())$('cloudStatusText').textContent='Modo local activo. Para sincronizar, configura la clave pública en js/supabase-config.js.';if(seedInitialAgenda())state=await storage.saveState(state);const session=cloudSync.captureSessionFromUrl();if(session){$('cloudStatusText').textContent='Comprobando sesión de '+(session.email||'usuario')+'…';try{const remote=await cloudSync.pullState(session);if(remote&&Number(remote.updatedAt)>Number(state.updatedAt)){state=await storage.saveState(remote);$('cloudStatusText').textContent='Sincronizado con Supabase'}else{await cloudSync.pushState(session,state);$('cloudStatusText').textContent='Conectado y sincronizado'}}catch(e){$('cloudStatusText').textContent='Sesión guardada. Sincronización pendiente: '+e.message}}else if(cloudSync.getSession()){$('cloudStatusText').textContent='Sesión guardada. Sincronizando…';try{const remote=await cloudSync.pullState();if(remote&&Number(remote.updatedAt)>Number(state.updatedAt))state=await storage.saveState(remote);else await cloudSync.pushState(null,state);$('cloudStatusText').textContent='Conectado y sincronizado'}catch(e){$('cloudStatusText').textContent='Sin conexión o sesión caducada. Los datos siguen guardados en este dispositivo.'}}advanceSapos();renderAll();bind();updateClock();setInterval(()=>{updateClock();updateCountdown()},1000);window.addEventListener('online',async()=>{try{await cloudSync.sync(state);$('cloudStatusText').textContent='Conectado y sincronizado'}catch{$('cloudStatusText').textContent='Sincronización pendiente'}});document.addEventListener('visibilitychange',async()=>{if(document.visibilityState==='visible'&&navigator.onLine&&cloudSync.getSession()){try{await cloudSync.sync(state);$('cloudStatusText').textContent='Conectado y sincronizado'}catch{$('cloudStatusText').textContent='Sincronización pendiente'}}});if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{})}
+init().catch(e=>toast('Error al iniciar: '+e.message));
