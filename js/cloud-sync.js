@@ -1,5 +1,6 @@
-const SUPABASE_URL = 'https://supabase.com/dashboard/project/zjtkxgljnjdcwoptzmet'; // <-- Pega tu Project URL aquí
-const SUPABASE_ANON_KEY = 'sb_publishable_d350CFHfO3QAMjRd7o5VmQ_siqvMr8z';         // <-- Pega tu anon public key aquí
+const SUPABASE_URL = 'https://zjtkxgljnjdcwoptzmet.supabase.co/rest/v1'; // <-- Pega tu Project REST API URL aquí (debe terminar en /rest/v1)
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || ''; // <-- Carga la clave desde variable de entorno
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || ''; // <-- Carga la clave desde variable de entorno
 
 const SESSION_KEY = 'enfoque_sb_session';
 
@@ -18,7 +19,15 @@ export const cloudSync = {
 
     if (accessToken) {
       // Decodificar el payload del JWT para obtener user_id y email sin librerías
-      const payload = JSON.parse(atob(accessToken.split('.')[1]));
+      function decodeJWTPayload(token) {
+        let base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+        // Pad with '=' if necessary
+        while (base64.length % 4) {
+          base64 += '=';
+        }
+        return JSON.parse(atob(base64));
+      }
+      const payload = decodeJWTPayload(accessToken);
       const session = {
         accessToken,
         refreshToken,
@@ -26,8 +35,9 @@ export const cloudSync = {
         email: payload.email
       };
       localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-      // Limpia el token de la barra de direcciones por seguridad
-      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      const sessionStr = localStorage.getItem(SESSION_KEY);
+      if (!sessionStr) return null;
+      return JSON.parse(sessionStr);
       return session;
     }
     return null;
@@ -44,13 +54,18 @@ export const cloudSync = {
   logout() {
     localStorage.removeItem(SESSION_KEY);
   },
-
   async sendMagicLink(email) {
-    if (!this.isConfigured()) {
-      throw new Error('Falta configurar SUPABASE_URL y SUPABASE_ANON_KEY en js/cloud-sync.js');
-    }
+    if (!this.isConfigured()) return false;
     const redirectTo = window.location.origin + window.location.pathname;
-    const res = await fetch(`${SUPABASE_URL}/auth/v1/magiclink`, {
+    // Ensure we use only the origin for the auth endpoint
+    const supabaseOrigin = (() => {
+      try {
+        return new URL(SUPABASE_URL).origin;
+      } catch {
+        return SUPABASE_URL;
+      }
+    })();
+    const res = await fetch(`${supabaseOrigin}/auth/v1/magiclink`, {
       method: 'POST',
       headers: {
         apikey: SUPABASE_ANON_KEY,
@@ -64,11 +79,11 @@ export const cloudSync = {
     if (!res.ok) throw new Error('No se pudo enviar el enlace. Verifica el correo o los límites de envío.');
     return true;
   },
-
-  async pullState(session) {
-    if (!this.isConfigured() || !session) return null;
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${session.accessToken}`
+        }
     const res = await fetch(
-      `${SUPABASE_URL}/rest/v1/user_agendas?user_id=eq.${session.userId}&select=payload,updated_at`,
+      `${SUPABASE_URL}/user_agendas?user_id=eq.${session.userId}&select=payload,updated_at`,
       {
         headers: {
           apikey: SUPABASE_ANON_KEY,
@@ -76,17 +91,17 @@ export const cloudSync = {
         }
       }
     );
+    );
     if (!res.ok) {
       if (res.status === 401) this.logout();
-      return null;
-    }
-    const rows = await res.json();
-    return rows?.[0]?.payload || null;
-  },
-
-  async pushState(session, state) {
-    if (!this.isConfigured() || !session) return;
-    await fetch(`${SUPABASE_URL}/rest/v1/user_agendas`, {
+    await fetch(`${SUPABASE_REST_URL}/user_agendas`, {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${session.accessToken}`,
+        'Content-Type': 'application/json',
+        Prefer: 'resolution=merge-duplicates'
+    await fetch(`${SUPABASE_URL}/user_agendas`, {
       method: 'POST',
       headers: {
         apikey: SUPABASE_ANON_KEY,
@@ -99,6 +114,7 @@ export const cloudSync = {
         payload: state,
         updated_at: new Date().toISOString()
       })
+    });
     });
   }
 };
