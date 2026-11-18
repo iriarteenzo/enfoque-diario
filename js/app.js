@@ -63,7 +63,7 @@ function seedInitialAgenda(){
  return true;
 }
 
-function advanceSapos(){const d=today(),prev=datePlus(d,-1),next=structuredClone(state);let changed=false;next.tasks.forEach(t=>{if(t.date===prev&&t.isFrog&&!isDone(t)){t.date=d;changed=true}});if(changed)commit(next)}
+function advanceSapos(){const d=today(),prev=datePlus(d,-1),next=structuredClone(state);let changed=false;next.tasks.forEach(t=>{if(t.date<d&&t.isFrog&&!isDone(t)){t.date=d;changed=true}});if(changed)commit(next)}
 function switchView(view){document.querySelectorAll('.view').forEach(v=>v.classList.toggle('active',v.id==='view-'+view));document.querySelectorAll('.nav [data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));if(view==='week')renderWeek()}
 function storyTasks(catId){return dayTasks().filter(t=>t.categoryId===catId)}
 function startStories(catId){const cats=state.categories;storyCategoryIndex=cats.findIndex(c=>c.id===catId);storyQueue=storyTasks(catId);storyIndex=0;storyMode='task';habitPending=false;if(!storyQueue.length){const c=cats[storyCategoryIndex];storyQueue=[{id:'empty_'+c.id,title:'Todo al día',categoryId:c.id,startTime:'',endTime:'',steps:[],completed:true}]}$('storyDialog').showModal();showStory()}
